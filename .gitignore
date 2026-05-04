@@ -1,0 +1,17 @@
+build/
+data/
+output/
+*.o
+*.d
+*.ply
+*.bin
+*.pyc
+__pycache__/
+.cache/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+.vscode/
+.idea/
