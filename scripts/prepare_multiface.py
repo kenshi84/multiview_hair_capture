@@ -46,7 +46,19 @@ S3_BASE = (
     "/MugsyDataRelease/v0.0/identities"
 )
 
-SUBJECT_FOLDERS = {
+SUBJECT_V1_FOLDERS = {
+    "002757580": "m--20171024--0000--002757580--GHS",
+    "002539136": "m--20180105--0000--002539136--GHS",
+    "6674443": "m--20180226--0000--6674443--GHS",
+    "6795937": "m--20180227--0000--6795937--GHS",
+    "8870559": "m--20180406--0000--8870559--GHS",
+    "2183941": "m--20180418--0000--2183941--GHS",
+    "002643814": "m--20180426--0000--002643814--GHS",
+    "5372021": "m--20180510--0000--5372021--GHS",
+    "7889059": "m--20180927--0000--7889059--GHS",
+    "002914589": "m--20181017--0000--002914589--GHS",
+}
+SUBJECT_V2_FOLDERS = {
     "002421669": "m--20190529--1300--002421669--GHS",
     "5067077": "m--20190529--1004--5067077--GHS",
     "002645310": "m--20190828--1318--002645310--GHS",
@@ -60,7 +72,7 @@ def parse_args():
         description="Download and convert Multiface data for hair capture pipeline"
     )
     p.add_argument("--subject_id", default="002421669")
-    p.add_argument("--expression", default="EXP_eye_neutral")
+    p.add_argument("--expression", default="EXP_eye_neutral", help="V1 defaults to E001_Neutral_Eyes_Open")
     p.add_argument("--frame_index", default=None,
                     help="6-digit frame index; auto-detect if omitted")
     p.add_argument("--download_dir", default="data/multiface",
@@ -93,7 +105,7 @@ def make_session(proxy=None):
 
 
 def download_and_extract_metadata(subject_id, dest_dir, session, max_retries=3):
-    subject_folder = SUBJECT_FOLDERS[subject_id]
+    subject_folder = SUBJECT_V2_FOLDERS[subject_id] if subject_id in SUBJECT_V2_FOLDERS else SUBJECT_V1_FOLDERS[subject_id]
     metadata_dir = os.path.join(dest_dir, subject_folder)
 
     krt_path = os.path.join(metadata_dir, "KRT")
@@ -173,31 +185,93 @@ def stream_extract_single_frame(url, target_frame, output_path, session,
     return False
 
 
+def stream_extract_all_frames(url, camera_ids, target_frame, output_exp_dir, session,
+                              max_retries=3):
+    output_paths = [os.path.join(output_exp_dir, cam_id, f"{target_frame}.png") for cam_id in camera_ids]
+    if all(os.path.exists(p) and os.path.getsize(p) > 0 for p in output_paths):
+        return []
+    failed = []
+    target_suffix = f"/{target_frame}.png"
+    for attempt in range(max_retries):
+        try:
+            resp = session.get(url, stream=True, timeout=300)
+            resp.raise_for_status()
+            try:
+                with tarfile.open(fileobj=resp.raw, mode="r|") as tar:
+                    for member in tar:  # noqa: PERF203
+                        if member.islnk() or member.issym():
+                            continue
+                        if member.name.endswith(target_suffix):
+                            cam_id = os.path.basename(os.path.dirname(member.name))
+                            if cam_id not in camera_ids:
+                                continue
+                            fobj = tar.extractfile(member)
+                            if fobj is None:
+                                failed.append(cam_id)
+                                continue
+                            output_path = os.path.join(output_exp_dir, cam_id, f"{target_frame}.png")
+                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                            with open(output_path, "wb") as out:
+                                out.write(fobj.read())
+                            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                                failed.append(cam_id)
+            except Exception:
+                if all(os.path.exists(output_path) and os.path.getsize(output_path) > 0 for output_path in output_paths):
+                    return []
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
+            finally:
+                resp.close()
+            return failed
+        except requests.RequestException as e:
+            if attempt < max_retries - 1:
+                print(f"\n  Retry {attempt + 1}/{max_retries}: {e}")
+                time.sleep(2 ** attempt)
+            else:
+                raise
+    return failed
+
 def download_images(subject_id, subject_folder, expression, target_frame,
-                    camera_ids, dest_dir, session, max_retries=3):
+                    camera_ids, dest_dir, session, version, max_retries=3):
     failed = []
     t0 = time.time()
 
-    for i, cam_id in enumerate(camera_ids, start=1):
-        output_path = os.path.join(
+    if version == "V1":
+        output_exp_dir = os.path.join(
             dest_dir, subject_folder,
-            "images", expression, cam_id, f"{target_frame}.png",
-        )
-        url = f"{S3_BASE}/{subject_id}/images--{expression}_cam{cam_id}.tar"
-
-        print(f"  [{i}/{len(camera_ids)}] cam {cam_id}...", end=" ", flush=True)
+            "images", expression)
+        url = f"{S3_BASE}/{subject_id}/images--{expression}.tar"
+        print(f"  Downloading {url}...")
         try:
-            ok = stream_extract_single_frame(
-                url, target_frame, output_path, session, max_retries
-            )
-            if ok:
-                print("OK")
-            else:
-                print("FRAME NOT FOUND")
-                failed.append(cam_id)
+            failed = stream_extract_all_frames(url, camera_ids, target_frame, output_exp_dir, session, max_retries)
         except Exception as e:
             print(f"FAILED ({e})")
-            failed.append(cam_id)
+            failed.extend(camera_ids)
+    elif version == "V2":
+        for i, cam_id in enumerate(camera_ids, start=1):
+            output_path = os.path.join(
+                dest_dir, subject_folder,
+                "images", expression, cam_id, f"{target_frame}.png",
+            )
+            url = f"{S3_BASE}/{subject_id}/images--{expression}_cam{cam_id}.tar"
+
+            print(f"  [{i}/{len(camera_ids)}] cam {cam_id}...", end=" ", flush=True)
+            try:
+                ok = stream_extract_single_frame(
+                    url, target_frame, output_path, session, max_retries
+                )
+                if ok:
+                    print("OK")
+                else:
+                    print("FRAME NOT FOUND")
+                    failed.append(cam_id)
+            except Exception as e:
+                print(f"FAILED ({e})")
+                failed.append(cam_id)
+    else:
+        raise ValueError(f"Unknown version: {version}")
 
     elapsed = time.time() - t0
     print(f"  {len(camera_ids) - len(failed)}/{len(camera_ids)} cameras "
@@ -478,11 +552,18 @@ profile = true
 def main():
     args = parse_args()
 
-    subject_folder = SUBJECT_FOLDERS.get(args.subject_id)
+    subject_folder = SUBJECT_V2_FOLDERS.get(args.subject_id)
     if not subject_folder:
-        print(f"ERROR: Unknown subject_id '{args.subject_id}'")
-        print(f"Available: {list(SUBJECT_FOLDERS.keys())}")
-        sys.exit(1)
+        subject_folder = SUBJECT_V1_FOLDERS.get(args.subject_id)
+        if not subject_folder:
+            print(f"ERROR: Unknown subject_id '{args.subject_id}'")
+            print(f"Available: {list(SUBJECT_V2_FOLDERS.keys()) + list(SUBJECT_V1_FOLDERS.keys())}")
+            sys.exit(1)
+    version = "V2" if args.subject_id in SUBJECT_V2_FOLDERS else "V1"
+
+    if version == "V1" and args.expression == "EXP_eye_neutral":
+        args.expression = "E001_Neutral_Eyes_Open"
+        print(f"  Using expression '{args.expression}' for V1 subject {args.subject_id}")
 
     camera_ids = get_camera_ids(args.subject_id)
     if args.num_cameras:
@@ -542,7 +623,7 @@ def main():
                   f"already exist)...")
             failed = download_images(
                 args.subject_id, subject_folder, args.expression, target_frame,
-                camera_ids, args.download_dir, session, args.max_retries,
+                camera_ids, args.download_dir, session, version, args.max_retries,
             )
             if failed:
                 print(f"  Failed cameras: {failed}")
