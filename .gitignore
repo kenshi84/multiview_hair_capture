@@ -15,3 +15,7 @@ Makefile
 compile_commands.json
 .vscode/
 .idea/
+.venv/
+temp/
+._*
+.DS_Store
