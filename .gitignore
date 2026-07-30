@@ -19,3 +19,4 @@ compile_commands.json
 temp/
 ._*
 .DS_Store
+temp.*
