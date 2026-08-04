@@ -38,14 +38,13 @@ class HierarchicalPatchMatch {
   // d_refGrayMap: reference grayscale image on GPU (level 0, non-pitched)
   // d_neiTexObjs: HOST array of texture objects for neighbor gray images at
   //               level 0 (already created by caller)
-  // pitch: pitch in BYTES of the level-0 neighbor pitched allocations
   // d_estLineMap: output Line3D map (caller-allocated, level-0 resolution)
   // d_orient2D: output 2D orientation map (from reference Gabor at level 0)
   // d_variance: output orientation variance map (level 0)
   // d_cost: output total matching cost map (level 0)
   // d_refMask: optional reference mask (nullptr if unused)
   // d_neiMasks: optional neighbor masks (nullptr if unused)
-  void Run(float* d_refGrayMap, cudaTextureObject_t* d_neiTexObjs, size_t pitch,
+  void Run(float* d_refGrayMap, cudaTextureObject_t* d_neiTexObjs,
            Line3D* d_estLineMap, float* d_orient2D, float* d_variance, float* d_cost,
            unsigned char* d_refMask, unsigned char** d_neiMasks);
 
@@ -87,7 +86,7 @@ class HierarchicalPatchMatch {
   std::vector<cudaTextureObject_t*> nei_orient_var_tex_;  // all levels
 
   // Pitches in BYTES for pitched allocations
-  std::vector<size_t> pitch_gray_;        // per level (levels > 0 only)
-  std::vector<size_t> pitch_orient_;      // per level
-  std::vector<size_t> pitch_orient_var_;  // per level
+  std::vector<std::vector<size_t>> pitch_gray_;        // per level and neighbor
+  std::vector<std::vector<size_t>> pitch_orient_;      // per level and neighbor
+  std::vector<std::vector<size_t>> pitch_orient_var_;  // per level and neighbor
 };

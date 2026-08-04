@@ -118,9 +118,9 @@ void HierarchicalPatchMatch::Allocate(std::vector<unsigned int>& widths,
   nei_orient_tex_.resize(numLevels, nullptr);
   nei_orient_var_tex_.resize(numLevels, nullptr);
 
-  pitch_gray_.resize(numLevels, 0);
-  pitch_orient_.resize(numLevels, 0);
-  pitch_orient_var_.resize(numLevels, 0);
+  pitch_gray_.resize(numLevels, std::vector<size_t>(numnei_, 0));
+  pitch_orient_.resize(numLevels, std::vector<size_t>(numnei_, 0));
+  pitch_orient_var_.resize(numLevels, std::vector<size_t>(numnei_, 0));
 
   intrinsic_at_level_.resize(numLevels);
   nei_cams_at_level_.resize(numLevels);
@@ -196,14 +196,12 @@ void HierarchicalPatchMatch::Allocate(std::vector<unsigned int>& widths,
     // Neighbor orient/variance — pitched allocations at ALL levels
     nei_orient_[i] = new float*[numnei_];
     nei_orient_var_[i] = new float*[numnei_];
-    size_t pitchO = 0, pitchOV = 0;
     for (int k = 0; k < numnei_; k++) {
-      CUDA_CHECK(cudaMallocPitch(&nei_orient_[i][k], &pitchO, sizeof(float) * w, h));
-      CUDA_CHECK(
-          cudaMallocPitch(&nei_orient_var_[i][k], &pitchOV, sizeof(float) * w, h));
+      CUDA_CHECK(cudaMallocPitch(&nei_orient_[i][k], &pitch_orient_[i][k],
+                                 sizeof(float) * w, h));
+      CUDA_CHECK(cudaMallocPitch(&nei_orient_var_[i][k],
+                                 &pitch_orient_var_[i][k], sizeof(float) * w, h));
     }
-    pitch_orient_[i] = pitchO;
-    pitch_orient_var_[i] = pitchOV;
 
     // Orient/variance texture object arrays (filled during Run)
     nei_orient_tex_[i] = new cudaTextureObject_t[numnei_];
@@ -226,11 +224,10 @@ void HierarchicalPatchMatch::Allocate(std::vector<unsigned int>& widths,
       nei_gray_[i] = new float*[numnei_];
       nei_gray_tex_[i] = new cudaTextureObject_t[numnei_];
       memset(nei_gray_tex_[i], 0, numnei_ * sizeof(cudaTextureObject_t));
-      size_t pitchG = 0;
       for (int k = 0; k < numnei_; k++) {
-        CUDA_CHECK(cudaMallocPitch(&nei_gray_[i][k], &pitchG, sizeof(float) * w, h));
+        CUDA_CHECK(cudaMallocPitch(&nei_gray_[i][k], &pitch_gray_[i][k],
+                                   sizeof(float) * w, h));
       }
-      pitch_gray_[i] = pitchG;
 
       CUDA_CHECK(cudaMalloc(&est_line_[i], npix * sizeof(Line3D)));
       CUDA_CHECK(cudaMemset(est_line_[i], 0, npix * sizeof(Line3D)));
@@ -318,7 +315,7 @@ void HierarchicalPatchMatch::Deallocate() {
 // ===========================================================================
 
 void HierarchicalPatchMatch::Run(float* d_refGrayMap, cudaTextureObject_t* d_neiTexObjs,
-                                 size_t pitch, Line3D* d_estLineMap, float* d_orient2D,
+                                 Line3D* d_estLineMap, float* d_orient2D,
                                  float* d_variance, float* d_cost,
                                  unsigned char* d_refMask, unsigned char** d_neiMasks) {
   unsigned int numLevels = num_levels_;
@@ -329,7 +326,6 @@ void HierarchicalPatchMatch::Run(float* d_refGrayMap, cudaTextureObject_t* d_nei
   ref_gray_[0] = d_refGrayMap;
   nei_gray_tex_[0] = d_neiTexObjs;  // HOST array from caller
   est_line_[0] = d_estLineMap;
-  pitch_gray_[0] = pitch;
 
   // -----------------------------------------------------------------------
   // Build multi-level gray images (fine-to-coarse, levels 0..N-2)
@@ -366,20 +362,21 @@ void HierarchicalPatchMatch::Run(float* d_refGrayMap, cudaTextureObject_t* d_nei
             CreateFloatTexture(d_smoothed, smooth_pitch, src_w, src_h);
         ResampleImageTexture(
             nei_gray_[i + 1][j], dst_w, dst_h,
-            static_cast<unsigned int>(pitch_gray_[i + 1] / sizeof(float)), smoothTex,
+            static_cast<unsigned int>(pitch_gray_[i + 1][j] / sizeof(float)), smoothTex,
             src_w, src_h);
         CUDA_CHECK(cudaDestroyTextureObject(smoothTex));
         CUDA_CHECK(cudaFree(d_smoothed));
       } else {
         ResampleImageTexture(
             nei_gray_[i + 1][j], dst_w, dst_h,
-            static_cast<unsigned int>(pitch_gray_[i + 1] / sizeof(float)),
+            static_cast<unsigned int>(pitch_gray_[i + 1][j] / sizeof(float)),
             nei_gray_tex_[i][j], src_w, src_h);
       }
 
       // Create texture object for the downsampled neighbor at level i+1
       nei_gray_tex_[i + 1][j] =
-          CreateFloatTexture(nei_gray_[i + 1][j], pitch_gray_[i + 1], dst_w, dst_h);
+          CreateFloatTexture(nei_gray_[i + 1][j], pitch_gray_[i + 1][j], dst_w,
+                             dst_h);
     }
 
     // Initialize line3D at level i+1 to zero
@@ -411,16 +408,16 @@ void HierarchicalPatchMatch::Run(float* d_refGrayMap, cudaTextureObject_t* d_nei
     for (int j = 0; j < numnei_; j++) {
       ComputeGaborOrientationTexture(
           nei_orient_[i][j],
-          static_cast<unsigned int>(pitch_orient_[i] / sizeof(float)),
+          static_cast<unsigned int>(pitch_orient_[i][j] / sizeof(float)),
           nei_orient_var_[i][j],
-          static_cast<unsigned int>(pitch_orient_var_[i] / sizeof(float)),
+          static_cast<unsigned int>(pitch_orient_var_[i][j] / sizeof(float)),
           nei_gray_tex_[i][j], w, h, rotate_res, gabor_params, nullptr);
 
       // Create texture objects for orient and orient variance
       nei_orient_tex_[i][j] =
-          CreateFloatTexture(nei_orient_[i][j], pitch_orient_[i], w, h);
+          CreateFloatTexture(nei_orient_[i][j], pitch_orient_[i][j], w, h);
       nei_orient_var_tex_[i][j] =
-          CreateFloatTexture(nei_orient_var_[i][j], pitch_orient_var_[i], w, h);
+          CreateFloatTexture(nei_orient_var_[i][j], pitch_orient_var_[i][j], w, h);
     }
   }
 

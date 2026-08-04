@@ -185,7 +185,7 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
     // 6. Allocate neighbor images with pitched memory + texture objects
     d_neiMaps.resize(numnei);
     h_neiTexObjs.resize(numnei);
-    size_t nei_pitch = 0;
+    std::vector<size_t> nei_pitches(numnei, 0);
 
     for (int k = 0; k < numnei; k++) {
       unsigned int nei_cam_id = cameras_.GetCamId(nei_indices[k]);
@@ -203,10 +203,9 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
         image_loader::UndistortImage(nei_img, nei_gpu.K, nei_gpu.dist);
       }
 
-      size_t p = 0;
-      CUDA_CHECK(cudaMallocPitch(&d_neiMaps[k], &p, sizeof(float) * width, height));
-      nei_pitch = p;
-      CUDA_CHECK(cudaMemcpy2D(d_neiMaps[k], nei_pitch, nei_img.data,
+      CUDA_CHECK(cudaMallocPitch(&d_neiMaps[k], &nei_pitches[k],
+                                 sizeof(float) * width, height));
+      CUDA_CHECK(cudaMemcpy2D(d_neiMaps[k], nei_pitches[k], nei_img.data,
                               sizeof(float) * width, sizeof(float) * width, height,
                               cudaMemcpyHostToDevice));
 
@@ -215,7 +214,7 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
       memset(&resDesc, 0, sizeof(resDesc));
       resDesc.resType = cudaResourceTypePitch2D;
       resDesc.res.pitch2D.devPtr = d_neiMaps[k];
-      resDesc.res.pitch2D.pitchInBytes = nei_pitch;
+      resDesc.res.pitch2D.pitchInBytes = nei_pitches[k];
       resDesc.res.pitch2D.width = width;
       resDesc.res.pitch2D.height = height;
       resDesc.res.pitch2D.desc = cudaCreateChannelDesc<float>();
@@ -325,8 +324,8 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
       hpm.SetOutputFolder(view_out);
     }
 
-    hpm.Run(d_refMap, h_neiTexObjs.data(), nei_pitch, d_lineMap, d_orient2D, d_variance,
-            d_cost, d_refMask, d_neiMaskPtrs);
+    hpm.Run(d_refMap, h_neiTexObjs.data(), d_lineMap, d_orient2D, d_variance, d_cost,
+            d_refMask, d_neiMaskPtrs);
 
     // 9b. Save per-view intermediates if requested
     if (config_.save_intermediates && !config_.output_dir.empty()) {
