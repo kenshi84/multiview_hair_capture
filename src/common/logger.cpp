@@ -76,6 +76,7 @@ void Logger::LogImpl(LogLevel level, const char* fmt, va_list args) {
   vfprintf(out, fmt, args_copy);
   va_end(args_copy);
   fprintf(out, "\n");
+  fflush(out);
 
   if (file_) {
     time_t now = time(nullptr);
