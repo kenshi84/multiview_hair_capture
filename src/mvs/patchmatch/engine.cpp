@@ -38,12 +38,10 @@ PatchMatchEngine::PatchMatchEngine(unsigned int width, unsigned int height,
 
   // Allocate state buffers
   CUDA_CHECK(cudaMalloc(&state_.d_cs, npixels * sizeof(curandState)));
-  CUDA_CHECK(cudaMalloc(&state_.d_line3D, npixels * sizeof(Line3D)));
   CUDA_CHECK(cudaMalloc(&state_.d_cost_orient, npixels * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&state_.d_cost_color, npixels * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&state_.d_cost_total, npixels * sizeof(float)));
 
-  CUDA_CHECK(cudaMemset(state_.d_line3D, 0, npixels * sizeof(Line3D)));
   CUDA_CHECK(cudaMemset(state_.d_cost_orient, 0, npixels * sizeof(float)));
   CUDA_CHECK(cudaMemset(state_.d_cost_color, 0, npixels * sizeof(float)));
   CUDA_CHECK(cudaMemset(state_.d_cost_total, 0, npixels * sizeof(float)));
@@ -63,8 +61,7 @@ PatchMatchEngine::~PatchMatchEngine() {
   // Free state buffers
   if (state_.d_cs)
     cudaFree(state_.d_cs);
-  if (state_.d_line3D)
-    cudaFree(state_.d_line3D);
+  // d_line3D is supplied and owned by HierarchicalPatchMatch for each level.
   if (state_.d_cost_orient)
     cudaFree(state_.d_cost_orient);
   if (state_.d_cost_color)
