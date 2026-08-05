@@ -67,6 +67,7 @@ Config Config::LoadFromToml(const std::string& path) {
   i("mvs", "num_neighbor_views", cfg.num_neighbor_views);
   f("mvs", "alpha", cfg.alpha);
   b("mvs", "use_mask", cfg.use_mask);
+  i("mvs", "mask_min_neighbor_views", cfg.mask_min_neighbor_views);
   i("mvs", "num_gpus", cfg.num_gpus);
   f("mvs", "min_angle", cfg.min_angle);
   f("mvs", "max_angle", cfg.max_angle);

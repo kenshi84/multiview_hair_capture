@@ -29,6 +29,7 @@ struct PatchMatchParams {
   float hair_delta_depth = 30.0f;
   float hair_spatial_prop_radius = 5.0f;
   int hair_num_view_select = 4;
+  int hair_mask_min_neighbor_views = 1;
 };
 
 // Full algorithm parameters (superset used by orchestration)
@@ -48,6 +49,7 @@ struct AlgorithmParams {
   float hair_delta_depth = 30.0f;
   float hair_spatial_prop_radius = 5.0f;
   int hair_num_view_select = 4;
+  int hair_mask_min_neighbor_views = 1;
 
   int box_hsize = 10;
   int box_vsize = 10;

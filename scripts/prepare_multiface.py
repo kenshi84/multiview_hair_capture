@@ -495,6 +495,7 @@ alpha = 0.1
 pt_sample_radius = 10.0
 pt_sample_kappa = 41
 use_mask = false
+mask_min_neighbor_views = 1
 iterations = 8
 patch_size = 21
 delta_depth = 30.0

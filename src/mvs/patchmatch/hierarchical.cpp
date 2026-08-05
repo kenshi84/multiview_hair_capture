@@ -66,6 +66,7 @@ static PatchMatchParams BuildPMParams(const AlgorithmParams& ap) {
   pm.hair_delta_depth = ap.hair_delta_depth;
   pm.hair_spatial_prop_radius = ap.hair_spatial_prop_radius;
   pm.hair_num_view_select = ap.hair_num_view_select;
+  pm.hair_mask_min_neighbor_views = ap.hair_mask_min_neighbor_views;
   return pm;
 }
 

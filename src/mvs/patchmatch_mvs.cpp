@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 
 #ifdef _OPENMP
@@ -41,6 +42,11 @@ PatchMatchMvs::~PatchMatchMvs() = default;
 void PatchMatchMvs::Run() {
   int num_cameras = cameras_.NumCameras();
   int num_gpus = config_.num_gpus;
+
+  if (config_.use_mask && config_.mask_dir.empty()) {
+    LOG_ERROR("use_mask is enabled but data.mask_dir is empty");
+    return;
+  }
 
   LOG_INFO("PatchMatchMvs: processing %d reference views on %d GPU(s)", num_cameras,
            num_gpus);
@@ -173,6 +179,7 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
     alg_params.hair_delta_depth = config_.delta_depth;
     alg_params.hair_spatial_prop_radius = config_.spatial_prop_radius;
     alg_params.hair_num_view_select = config_.num_view_select;
+    alg_params.hair_mask_min_neighbor_views = config_.mask_min_neighbor_views;
     alg_params.hair_gaussian_pyramid = config_.gaussian_pyramid;
     alg_params.box_hsize = config_.patch_size / 2;
     alg_params.box_vsize = config_.patch_size / 2;
@@ -244,8 +251,15 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
       if (!ref_mask_img.Empty() && config_.distorted_images) {
         image_loader::UndistortImage(ref_mask_img, ref_gpu.K, ref_gpu.dist);
       }
-      if (!ref_mask_img.Empty()) {
-        unsigned int mask_npix = ref_mask_img.width * ref_mask_img.height;
+      if (ref_mask_img.Empty() ||
+          ref_mask_img.width != static_cast<int>(width) ||
+          ref_mask_img.height != static_cast<int>(height)) {
+        LOG_ERROR("Reference mask %s is missing or has size %dx%d (expected %ux%u)",
+                  ref_mask_path.c_str(), ref_mask_img.width, ref_mask_img.height,
+                  width, height);
+        throw std::runtime_error("invalid reference mask");
+      } else {
+        unsigned int mask_npix = width * height;
         std::vector<unsigned char> ref_mask_uchar(mask_npix);
         for (unsigned int j = 0; j < mask_npix; j++) {
           ref_mask_uchar[j] =
@@ -255,9 +269,6 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
         CUDA_CHECK(cudaMemcpy(d_refMask, ref_mask_uchar.data(),
                               mask_npix * sizeof(unsigned char),
                               cudaMemcpyHostToDevice));
-      } else {
-        LOG_WARN("Failed to load ref mask, disabling mask mode");
-        alg_params.bReconWithMask = false;
       }
 
       // Neighbor masks
@@ -274,8 +285,15 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
           GpuCamera nei_gpu = nei_cam.BuildGpuCamera();
           image_loader::UndistortImage(nei_mask_img, nei_gpu.K, nei_gpu.dist);
         }
-        if (!nei_mask_img.Empty()) {
-          unsigned int mask_npix = nei_mask_img.width * nei_mask_img.height;
+        if (nei_mask_img.Empty() ||
+            nei_mask_img.width != static_cast<int>(width) ||
+            nei_mask_img.height != static_cast<int>(height)) {
+          LOG_WARN("Ignoring neighbor mask %s with size %dx%d (expected %ux%u)",
+                   nei_mask_path.c_str(), nei_mask_img.width, nei_mask_img.height,
+                   width, height);
+          continue;
+        } else {
+          unsigned int mask_npix = width * height;
           std::vector<unsigned char> nei_mask_uchar(mask_npix);
           for (unsigned int j = 0; j < mask_npix; j++) {
             nei_mask_uchar[j] =
@@ -319,7 +337,7 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
     // 9. Create and run HierarchicalPatchMatch
     HierarchicalPatchMatch hpm(K_scaled, nei_gpu_cams, alg_params, level_widths,
                                level_heights, num_levels);
-    hpm.use_mask = config_.use_mask;
+    hpm.use_mask = alg_params.bReconWithMask;
 
     if (!config_.output_dir.empty()) {
       std::string view_out = config_.output_dir + "/view_" + std::to_string(ref_cam_id);

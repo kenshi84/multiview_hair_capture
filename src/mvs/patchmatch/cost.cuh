@@ -23,6 +23,15 @@
 #define MAXCOST_HAIR_ORIENT 1.0f
 #define HAIR_LPMVS_KAPPA 41
 
+__device__ inline bool IsInsideMask(const unsigned char* mask, const float2& pos,
+                                    int width, int height) {
+  if (mask == nullptr || !IsPositionValid(pos, width, height))
+    return false;
+  int x = static_cast<int>(roundf(pos.x));
+  int y = static_cast<int>(roundf(pos.y));
+  return mask[y * width + x] != 0;
+}
+
 __device__ inline float2 MultiViewLineCost(const PatchMatchInput& input,
                                            const PatchMatchState& state,
                                            const int2& pos, const Line3D& line_now,
@@ -45,21 +54,45 @@ __device__ inline float2 MultiViewLineCost(const PatchMatchInput& input,
   const float alpha = parameters.hair_alpha;
   const int num_view_select = parameters.hair_num_view_select;
   const bool use_mask = parameters.bMaskInput;
+  const int max_neighbor_views = MIN(numnei, MAX_NEIGHBOR_VIEWS);
 
+  // Build a compact set of neighbor views eligible for cost evaluation. A
+  // masked-out projection excludes only that neighbor; it must not invalidate
+  // an otherwise supported hypothesis in every view.
+  int eligible_views[MAX_NEIGHBOR_VIEWS];
+  int eligible_view_count = 0;
   if (use_mask) {
-    unsigned char mskval = input.d_refMaskMapUchar[ctrind];
-    if (mskval == 0)
+    if (input.d_refMaskMapUchar == nullptr ||
+        input.d_neiMaskMapsUchar == nullptr ||
+        input.d_refMaskMapUchar[ctrind] == 0) {
       return make_float2(MAXCOST_HAIR_COLOR, MAXCOST_HAIR_ORIENT);
-    for (int view = 0; view < MIN(numnei, MAX_NEIGHBOR_VIEWS); view++) {
+    }
+
+    // Search the full configured neighbor list so a masked-out close view can
+    // be replaced by a later valid view, up to the solver's fixed capacity.
+    for (int view = 0;
+         view < numnei && eligible_view_count < MAX_NEIGHBOR_VIEWS; view++) {
+      const unsigned char* neighbor_mask = input.d_neiMaskMapsUchar[view];
+      if (neighbor_mask == nullptr)
+        continue;
       float2 pos_nei = GetCorrespondingPointInNeighbor(
           make_float2((float) pos.x, (float) pos.y), line_now, invK, d_cameras[view]);
-      if (IsPositionValid(pos_nei, width, height)) {
-        int neiind = (int) floorf(pos_nei.y) * width + (int) floorf(pos_nei.x);
-        unsigned char nmsk = input.d_neiMaskMapsUchar[view][neiind];
-        if (nmsk == 0)
-          return make_float2(MAXCOST_HAIR_COLOR, MAXCOST_HAIR_ORIENT);
-      }
+      if (IsInsideMask(neighbor_mask, pos_nei, width, height))
+        eligible_views[eligible_view_count++] = view;
     }
+
+    int min_masked_views = parameters.hair_mask_min_neighbor_views;
+    min_masked_views = MAX(1, MIN(min_masked_views, max_neighbor_views));
+    if (eligible_view_count < min_masked_views) {
+      return make_float2(MAXCOST_HAIR_COLOR, MAXCOST_HAIR_ORIENT);
+    }
+  } else {
+    for (int view = 0; view < max_neighbor_views; view++)
+      eligible_views[eligible_view_count++] = view;
+  }
+
+  if (eligible_view_count == 0) {
+    return make_float2(MAXCOST_HAIR_COLOR, MAXCOST_HAIR_ORIENT);
   }
 
   if (sample_kappa % 2 == 0)
@@ -82,11 +115,18 @@ __device__ inline float2 MultiViewLineCost(const PatchMatchInput& input,
   float2 vec_pos_ref[HAIR_LPMVS_KAPPA];
   Sample2DPointsOnLine(vec_pos_ref, pos, l_ref, sample_radius, HAIR_LPMVS_KAPPA);
 
+  // Masks deliberately gate only the hypothesis center and neighbor-view
+  // eligibility. Applying them to every support sample clips the NCC and
+  // orientation windows at approximate mask boundaries, suppressing valid
+  // strands whose centers are still inside the foreground region.
+
   // Color cost (NCC along line samples)
   int cost_color_count = 0;
   float cost_color = 0.0f;
 
-  for (int view = 0; view < MIN(numnei, MAX_NEIGHBOR_VIEWS); view++) {
+  for (int eligible_index = 0; eligible_index < eligible_view_count;
+       eligible_index++) {
+    int view = eligible_views[eligible_index];
     float mean_left = 0.0f, std_left = 0.0f;
     float mean_right = 0.0f, std_right = 0.0f;
     float tmpcost = 0.0f;
@@ -166,7 +206,9 @@ __device__ inline float2 MultiViewLineCost(const PatchMatchInput& input,
   }
 
   // Neighbor views
-  for (int view = 0; view < MIN(numnei, MAX_NEIGHBOR_VIEWS); view++) {
+  for (int eligible_index = 0; eligible_index < eligible_view_count;
+       eligible_index++) {
+    int view = eligible_views[eligible_index];
     float tmpcost_nei = 0.0f;
     float tmpweight_nei = 0.0f;
 
@@ -207,23 +249,29 @@ __device__ inline float2 MultiViewLineCost(const PatchMatchInput& input,
     cost_color = MAXCOST_HAIR_COLOR;
     cost_orient = MAXCOST_HAIR_ORIENT;
   } else {
-    for (int i = 0; i < MIN(numnei, MAX_NEIGHBOR_VIEWS); i++) {
+    for (int i = 0; i < eligible_view_count; i++) {
       vec_cost_total[i] =
           alpha * vec_cost_color[i] + (1.0f - alpha) * vec_cost_orient[i + 1];
     }
 
+    int selected_view_count = MIN(num_view_select, eligible_view_count);
     int view_count = 0;
-    for (int i = 0; i < MIN(numnei, MAX_NEIGHBOR_VIEWS); i++) {
-      int order = GetOrder(vec_cost_total, MIN(numnei, MAX_NEIGHBOR_VIEWS), i);
-      if (order < num_view_select) {
+    for (int i = 0; i < eligible_view_count; i++) {
+      int order = GetOrder(vec_cost_total, eligible_view_count, i);
+      if (order < selected_view_count) {
         view_count++;
         cost_color += vec_cost_color[i];
         cost_orient += vec_cost_orient[i + 1];
       }
     }
-    cost_color /= (float) view_count;
-    cost_orient += (float) view_count * vec_cost_orient[0];
-    cost_orient /= (float) (2 * view_count);
+    if (view_count == 0) {
+      cost_color = MAXCOST_HAIR_COLOR;
+      cost_orient = MAXCOST_HAIR_ORIENT;
+    } else {
+      cost_color /= (float) view_count;
+      cost_orient += (float) view_count * vec_cost_orient[0];
+      cost_orient /= (float) (2 * view_count);
+    }
   }
 
   return make_float2(cost_color, cost_orient);

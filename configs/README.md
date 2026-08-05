@@ -41,7 +41,8 @@ All parameters with their defaults. Omitted parameters use the default values sh
 | `alpha` | `0.1` | Weight for geometric (orientation) cost vs intensity (NCC) cost. Total cost = `(1 - alpha) * orient_cost + alpha * color_cost`. |
 | `pt_sample_radius` | `10.0` | Radius (pixels) for sampling points along the projected 2D line in each view. |
 | `pt_sample_kappa` | `41` | Number of sample points along the projected 2D line. Must be odd and `<= 41` (compile-time max set by `HAIR_LPMVS_KAPPA` in `cost.cuh`). Even values are rounded up to the next odd internally. |
-| `use_mask` | `false` | Enable hair mask filtering. Pixels outside the mask are skipped during MVS. |
+| `use_mask` | `false` | Enable hair mask filtering. Hypothesis centers must be inside the reference mask, and neighbor views are eligible when the projected center is inside their mask. Support windows may extend beyond mask boundaries. |
+| `mask_min_neighbor_views` | `1` | Minimum number of neighbor views whose projected center must be inside a valid mask. Masked-out neighbors are excluded from cost/view selection instead of rejecting the hypothesis globally. |
 
 ### Solver
 

@@ -29,6 +29,7 @@ struct Config {
   int num_neighbor_views = 25;
   float alpha = 0.1f;
   bool use_mask = false;
+  int mask_min_neighbor_views = 1;
   int num_gpus = 1;
   float min_angle = 1.0f;
   float max_angle = 90.0f;
