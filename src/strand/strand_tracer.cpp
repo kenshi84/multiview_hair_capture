@@ -9,6 +9,7 @@
 
 #include "strand/strand_tracer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -35,7 +36,11 @@ bool ForwardEulerStep(const float pos[3], const float dir[3], const PointCloud& 
                       float out_dir[3]) {
   std::vector<nanoflann::ResultItem<KdTreeIndex, float>> neighbors;
 
-  for (float move_step = step_size; move_step < max_lookahead; move_step += step_size) {
+  int num_lookahead_steps = std::max(
+      1, static_cast<int>(std::floor(max_lookahead / step_size + 1e-5f)));
+  for (int lookahead_step = 1; lookahead_step <= num_lookahead_steps;
+       lookahead_step++) {
+    float move_step = lookahead_step * step_size;
     // Probe position along current direction
     float probe[3] = {pos[0] + move_step * dir[0], pos[1] + move_step * dir[1],
                       pos[2] + move_step * dir[2]};
@@ -104,7 +109,7 @@ bool ForwardEulerStep(const float pos[3], const float dir[3], const PointCloud& 
       if (avg_len < 1e-10f)
         return false;
 
-      if (move_step != step_size) {
+      if (lookahead_step > 1) {
         // Found at lookahead > step_size: re-project to step_size distance
         float re_dx = avg_px - pos[0];
         float re_dy = avg_py - pos[1];
@@ -174,9 +179,23 @@ std::vector<Strand> Trace(const PointCloud& cloud, const Config& config) {
 
   float step_size = config.trace_step_size;
   float nei_radius = config.trace_neighbor_radius;
+  float max_lookahead = config.trace_lookahead_distance;
   float angle_thresh_deg = config.trace_angle_threshold;  // in degrees
   float min_length = config.trace_min_strand_length;
-  float max_lookahead = min_length;  // max lookahead distance = min strand length
+
+  if (step_size <= 0.0f || nei_radius <= 0.0f || max_lookahead <= 0.0f ||
+      min_length < 0.0f) {
+    LOG_ERROR("Invalid trace parameters: step=%.3f, radius=%.3f, lookahead=%.3f, "
+              "min_length=%.3f",
+              step_size, nei_radius, max_lookahead, min_length);
+    return {};
+  }
+  if (max_lookahead < step_size) {
+    LOG_WARN("trace.lookahead_distance %.3f is shorter than step_size %.3f; "
+             "clamping it to one step",
+             max_lookahead, step_size);
+    max_lookahead = step_size;
+  }
 
   // Build KD-tree
   KdTree tree;

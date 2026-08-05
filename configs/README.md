@@ -100,8 +100,9 @@ Forward Euler strand tracing from the fused point cloud.
 |-----------|---------|-------------|
 | `step_size` | `0.1` | Step size (mm) for tracing along the strand direction. |
 | `neighbor_radius` | `0.1` | Search radius (mm) for finding nearby points at each tracing step. Points within this radius are averaged to determine the next position and direction. |
+| `lookahead_distance` | `0.5` | Maximum distance (mm) searched along the current direction when the next local step has no support. Keeping this separate from strand filtering prevents large gaps from being bridged implicitly. Values below `step_size` are clamped to one step. |
 | `angle_threshold` | `30.0` | Maximum direction change (degrees) between consecutive tracing steps. Steps exceeding this terminate the strand. |
-| `min_strand_length` | `2.0` | Minimum strand length (mm). Strands shorter than this are discarded during tracing. Also used as the **lookahead distance** for the forward-Euler step, so changing it affects both the discard threshold and the tracing geometry. |
+| `min_strand_length` | `2.0` | Minimum strand length (mm). Strands shorter than this are discarded without changing the tracing geometry. |
 
 ## `[clean]`
 

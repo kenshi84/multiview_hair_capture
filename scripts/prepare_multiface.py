@@ -528,6 +528,7 @@ max_iterations = 1000
 [trace]
 step_size = 0.1
 neighbor_radius = 0.1
+lookahead_distance = 0.5
 angle_threshold = 30.0
 min_strand_length = 2.0
 

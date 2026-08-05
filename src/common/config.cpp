@@ -105,6 +105,7 @@ Config Config::LoadFromToml(const std::string& path) {
   // [trace]
   f("trace", "step_size", cfg.trace_step_size);
   f("trace", "neighbor_radius", cfg.trace_neighbor_radius);
+  f("trace", "lookahead_distance", cfg.trace_lookahead_distance);
   f("trace", "angle_threshold", cfg.trace_angle_threshold);
   f("trace", "min_strand_length", cfg.trace_min_strand_length);
 

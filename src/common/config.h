@@ -67,6 +67,7 @@ struct Config {
   // [trace]
   float trace_step_size = 0.1f;
   float trace_neighbor_radius = 0.1f;
+  float trace_lookahead_distance = 0.5f;
   float trace_angle_threshold = 30.0f;
   float trace_min_strand_length = 2.0f;
 
