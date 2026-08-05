@@ -39,6 +39,8 @@ struct AlgorithmParams {
   float hair_orient_gabor_sigma = 1.12f;
   float hair_orient_gabor_gamma = 0.28f;
   float hair_orient_gabor_lambd = 3.00f;
+  float hair_orient_gabor_min_contrast = 0.01f;
+  float hair_orient_gabor_min_response = 0.02f;
   float hair_alpha = 0.1f;
   float hair_pt_sample_radius = 10.0f;
   int hair_pt_sample_kappa = 41;

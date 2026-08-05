@@ -64,6 +64,8 @@ Gabor filter bank parameters for computing 2D hair orientation fields.
 | `sigma` | `1.12` | Gaussian envelope standard deviation. |
 | `gamma` | `0.28` | Spatial aspect ratio (sigma_y = sigma / gamma). |
 | `lambda` | `3.0` | Wavelength of the cosine factor. |
+| `min_contrast` | `0.01` | Minimum local grayscale standard deviation (images are normalized to 0–1); lower-contrast pixels are marked invalid. |
+| `min_response` | `0.02` | Minimum normalized quadrature-filter response; weaker responses are marked invalid. |
 
 ### `[mvs.fusion]`
 

@@ -394,6 +394,8 @@ void HierarchicalPatchMatch::Run(float* d_refGrayMap, cudaTextureObject_t* d_nei
   gabor_params.sigma = params_.hair_orient_gabor_sigma;
   gabor_params.gamma = params_.hair_orient_gabor_gamma;
   gabor_params.lambd = params_.hair_orient_gabor_lambd;
+  gabor_params.min_contrast = params_.hair_orient_gabor_min_contrast;
+  gabor_params.min_response = params_.hair_orient_gabor_min_response;
   int rotate_res = params_.hair_orient_rotate_res;
 
   for (unsigned int i = 0; i < numLevels; i++) {

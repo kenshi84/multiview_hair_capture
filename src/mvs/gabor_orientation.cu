@@ -23,18 +23,24 @@
 // Device helpers
 // ---------------------------------------------------------------------------
 
-// Gabor kernel value at integer offset (x,y) for orientation theta.
-__device__ __forceinline__ float getGaborAt(int x, int y, float theta, float sigma,
-                                            float gamma, float lambd) {
+// Even/odd Gabor pair at integer offset (x,y). Combining the pair magnitude
+// makes the orientation estimate independent of strand polarity and phase.
+__device__ __forceinline__ float2 getGaborPairAt(int x, int y, float theta,
+                                                 float sigma, float gamma,
+                                                 float lambd) {
   float sigma_x = sigma;
   float sigma_y = sigma / gamma;
   float c = __cosf(theta);
   float s = __sinf(theta);
   float xr = x * c + y * s;
   float yr = -x * s + y * c;
-  return __expf(-0.5f *
-                (xr * xr / (sigma_x * sigma_x) + yr * yr / (sigma_y * sigma_y))) *
-         __cosf(2.0f * PI / lambd * xr);
+  float envelope = __expf(
+      -0.5f *
+      (xr * xr / (sigma_x * sigma_x) + yr * yr / (sigma_y * sigma_y)));
+  float sin_phase;
+  float cos_phase;
+  __sincosf(2.0f * PI / lambd * xr, &sin_phase, &cos_phase);
+  return make_float2(envelope * cos_phase, envelope * sin_phase);
 }
 
 // Angular distance in [0, PI/2] respecting orientation symmetry.
@@ -43,6 +49,61 @@ __device__ __forceinline__ float angleDistance(float a, float b) {
   if (d > PI / 2.0f)
     d = PI - d;
   return d;
+}
+
+// Welford accumulation avoids cancellation when measuring nearly constant
+// image patches. The returned energy is sum((pixel - mean)^2).
+__device__ __forceinline__ bool getLinearPatchStats(
+    const float* gray, unsigned int width, unsigned int height, unsigned int px,
+    unsigned int py, int half, float* mean, float* energy, int* count) {
+  *mean = 0.0f;
+  *energy = 0.0f;
+  *count = 0;
+
+  for (int ky = -half; ky <= half; ++ky) {
+    for (int kx = -half; kx <= half; ++kx) {
+      int sx = static_cast<int>(px) + kx;
+      int sy = static_cast<int>(py) + ky;
+      if (sx < 0 || sx >= static_cast<int>(width) || sy < 0 ||
+          sy >= static_cast<int>(height))
+        continue;
+
+      float pixel = gray[sy * width + sx];
+      ++(*count);
+      float delta = pixel - *mean;
+      *mean += delta / static_cast<float>(*count);
+      *energy += delta * (pixel - *mean);
+    }
+  }
+
+  return *count > 0;
+}
+
+__device__ __forceinline__ bool getTexturePatchStats(
+    cudaTextureObject_t gray, unsigned int width, unsigned int height,
+    unsigned int px, unsigned int py, int half, float* mean, float* energy,
+    int* count) {
+  *mean = 0.0f;
+  *energy = 0.0f;
+  *count = 0;
+
+  for (int ky = -half; ky <= half; ++ky) {
+    for (int kx = -half; kx <= half; ++kx) {
+      int sx = static_cast<int>(px) + kx;
+      int sy = static_cast<int>(py) + ky;
+      if (sx < 0 || sx >= static_cast<int>(width) || sy < 0 ||
+          sy >= static_cast<int>(height))
+        continue;
+
+      float pixel = tex2D<float>(gray, sx + 0.5f, sy + 0.5f);
+      ++(*count);
+      float delta = pixel - *mean;
+      *mean += delta / static_cast<float>(*count);
+      *energy += delta * (pixel - *mean);
+    }
+  }
+
+  return *count > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +128,18 @@ __global__ void GaborOrientationKernel(float* d_OrientMap, float* d_VarianceMap,
   }
 
   int half = params.ksize / 2;
+  float patch_mean;
+  float patch_energy;
+  int sample_count;
+  if (!getLinearPatchStats(d_GrayMap, width, height, px, py, half, &patch_mean,
+                           &patch_energy, &sample_count) ||
+      patch_energy <= 1e-12f ||
+      sqrtf(patch_energy / static_cast<float>(sample_count)) <
+          params.min_contrast) {
+    d_OrientMap[idx] = 0.0f;
+    d_VarianceMap[idx] = 0.0f;
+    return;
+  }
 
   float vec_val[ORIENT2D_ROTATE_RES];
   float val_max = -1e30f;
@@ -75,7 +148,11 @@ __global__ void GaborOrientationKernel(float* d_OrientMap, float* d_VarianceMap,
 
   for (int ri = 0; ri < rotate_res; ++ri) {
     float theta = PI * static_cast<float>(ri) / static_cast<float>(rotate_res);
-    float response = 0.0f;
+    float response_even = 0.0f;
+    float response_odd = 0.0f;
+    float kernel_sum_even = 0.0f;
+    float kernel_sum_odd = 0.0f;
+    float kernel_square_sum = 0.0f;
 
     for (int ky = -half; ky <= half; ++ky) {
       for (int kx = -half; kx <= half; ++kx) {
@@ -85,10 +162,29 @@ __global__ void GaborOrientationKernel(float* d_OrientMap, float* d_VarianceMap,
             sy >= static_cast<int>(height))
           continue;
 
-        float g = getGaborAt(kx, ky, theta, params.sigma, params.gamma, params.lambd);
-        response += g * d_GrayMap[sy * width + sx];
+        float2 g =
+            getGaborPairAt(kx, ky, theta, params.sigma, params.gamma, params.lambd);
+        float centered_pixel = d_GrayMap[sy * width + sx] - patch_mean;
+        response_even += g.x * centered_pixel;
+        response_odd += g.y * centered_pixel;
+        kernel_sum_even += g.x;
+        kernel_sum_odd += g.y;
+        kernel_square_sum += g.x * g.x + g.y * g.y;
       }
     }
+
+    // Centering the patch is algebraically equivalent to removing the
+    // discrete kernel DC component. Normalize by patch and kernel energy so
+    // the response threshold has a stable meaning across image contrast.
+    float kernel_energy =
+        kernel_square_sum -
+        (kernel_sum_even * kernel_sum_even + kernel_sum_odd * kernel_sum_odd) /
+            static_cast<float>(sample_count);
+    kernel_energy = fmaxf(kernel_energy, 0.0f);
+    float normalization = sqrtf(patch_energy * kernel_energy);
+    float response = normalization > 1e-12f
+                         ? hypotf(response_even, response_odd) / normalization
+                         : 0.0f;
 
     vec_val[ri] = response;
 
@@ -105,15 +201,18 @@ __global__ void GaborOrientationKernel(float* d_OrientMap, float* d_VarianceMap,
 
   float variance = 0.0f;
   float range = val_max - val_min;
-  if (range > 1e-12f) {
-    for (int ri = 0; ri < rotate_res; ++ri) {
-      float theta_i = PI * static_cast<float>(ri) / static_cast<float>(rotate_res);
-      float theta_diff = angleDistance(theta_i, theta_max) / (PI / 2.0f);
-      float w = (vec_val[ri] - val_min) / range;
-      variance += theta_diff * theta_diff * w;
-    }
-    variance /= rotate_res;
+  if (val_max < params.min_response || range <= 1e-12f) {
+    d_OrientMap[idx] = 0.0f;
+    d_VarianceMap[idx] = 0.0f;
+    return;
   }
+  for (int ri = 0; ri < rotate_res; ++ri) {
+    float theta_i = PI * static_cast<float>(ri) / static_cast<float>(rotate_res);
+    float theta_diff = angleDistance(theta_i, theta_max) / (PI / 2.0f);
+    float w = (vec_val[ri] - val_min) / range;
+    variance += theta_diff * theta_diff * w;
+  }
+  variance /= rotate_res;
 
   d_OrientMap[idx] = theta_max;
   d_VarianceMap[idx] = variance;
@@ -143,6 +242,18 @@ __global__ void GaborOrientationTextureKernel(
   }
 
   int half = params.ksize / 2;
+  float patch_mean;
+  float patch_energy;
+  int sample_count;
+  if (!getTexturePatchStats(d_GrayMap, width, height, px, py, half, &patch_mean,
+                            &patch_energy, &sample_count) ||
+      patch_energy <= 1e-12f ||
+      sqrtf(patch_energy / static_cast<float>(sample_count)) <
+          params.min_contrast) {
+    d_OrientMap[py * pitchOrient + px] = 0.0f;
+    d_VarianceMap[py * pitchVariance + px] = 0.0f;
+    return;
+  }
 
   float vec_val[ORIENT2D_ROTATE_RES];
   float val_max = -1e30f;
@@ -151,7 +262,11 @@ __global__ void GaborOrientationTextureKernel(
 
   for (int ri = 0; ri < rotate_res; ++ri) {
     float theta = PI * static_cast<float>(ri) / static_cast<float>(rotate_res);
-    float response = 0.0f;
+    float response_even = 0.0f;
+    float response_odd = 0.0f;
+    float kernel_sum_even = 0.0f;
+    float kernel_sum_odd = 0.0f;
+    float kernel_square_sum = 0.0f;
 
     for (int ky = -half; ky <= half; ++ky) {
       for (int kx = -half; kx <= half; ++kx) {
@@ -161,11 +276,27 @@ __global__ void GaborOrientationTextureKernel(
             sy >= static_cast<int>(height))
           continue;
 
-        float g = getGaborAt(kx, ky, theta, params.sigma, params.gamma, params.lambd);
+        float2 g =
+            getGaborPairAt(kx, ky, theta, params.sigma, params.gamma, params.lambd);
         float pixel = tex2D<float>(d_GrayMap, sx + 0.5f, sy + 0.5f);
-        response += g * pixel;
+        float centered_pixel = pixel - patch_mean;
+        response_even += g.x * centered_pixel;
+        response_odd += g.y * centered_pixel;
+        kernel_sum_even += g.x;
+        kernel_sum_odd += g.y;
+        kernel_square_sum += g.x * g.x + g.y * g.y;
       }
     }
+
+    float kernel_energy =
+        kernel_square_sum -
+        (kernel_sum_even * kernel_sum_even + kernel_sum_odd * kernel_sum_odd) /
+            static_cast<float>(sample_count);
+    kernel_energy = fmaxf(kernel_energy, 0.0f);
+    float normalization = sqrtf(patch_energy * kernel_energy);
+    float response = normalization > 1e-12f
+                         ? hypotf(response_even, response_odd) / normalization
+                         : 0.0f;
 
     vec_val[ri] = response;
 
@@ -183,15 +314,18 @@ __global__ void GaborOrientationTextureKernel(
   // Circular weighted variance
   float variance = 0.0f;
   float range = val_max - val_min;
-  if (range > 1e-12f) {
-    for (int ri = 0; ri < rotate_res; ++ri) {
-      float theta_i = PI * static_cast<float>(ri) / static_cast<float>(rotate_res);
-      float theta_diff = angleDistance(theta_i, theta_max) / (PI / 2.0f);
-      float w = (vec_val[ri] - val_min) / range;
-      variance += theta_diff * theta_diff * w;
-    }
-    variance /= rotate_res;
+  if (val_max < params.min_response || range <= 1e-12f) {
+    d_OrientMap[py * pitchOrient + px] = 0.0f;
+    d_VarianceMap[py * pitchVariance + px] = 0.0f;
+    return;
   }
+  for (int ri = 0; ri < rotate_res; ++ri) {
+    float theta_i = PI * static_cast<float>(ri) / static_cast<float>(rotate_res);
+    float theta_diff = angleDistance(theta_i, theta_max) / (PI / 2.0f);
+    float w = (vec_val[ri] - val_min) / range;
+    variance += theta_diff * theta_diff * w;
+  }
+  variance /= rotate_res;
 
   d_OrientMap[py * pitchOrient + px] = theta_max;
   d_VarianceMap[py * pitchVariance + px] = variance;

@@ -46,6 +46,8 @@ struct Config {
   float gabor_sigma = 1.12f;
   float gabor_gamma = 0.28f;
   float gabor_lambda = 3.00f;
+  float gabor_min_contrast = 0.01f;
+  float gabor_min_response = 0.02f;
 
   // [mvs.fusion]
   float fusion_position_threshold = 1.0f;

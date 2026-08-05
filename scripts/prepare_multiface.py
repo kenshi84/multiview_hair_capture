@@ -507,6 +507,8 @@ kernel_size = 21
 sigma = 1.12
 gamma = 0.28
 lambda = 3.00
+min_contrast = 0.01
+min_response = 0.02
 
 [mvs.fusion]
 position_threshold = 1.0

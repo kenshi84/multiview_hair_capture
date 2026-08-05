@@ -23,6 +23,8 @@ struct GaborParams {
   float sigma;
   float gamma;
   float lambd;
+  float min_contrast;
+  float min_response;
 };
 
 // GPU camera parameters for CUDA kernels (flat float arrays)

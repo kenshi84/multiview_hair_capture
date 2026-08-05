@@ -163,6 +163,8 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
     alg_params.hair_orient_gabor_sigma = config_.gabor_sigma;
     alg_params.hair_orient_gabor_gamma = config_.gabor_gamma;
     alg_params.hair_orient_gabor_lambd = config_.gabor_lambda;
+    alg_params.hair_orient_gabor_min_contrast = config_.gabor_min_contrast;
+    alg_params.hair_orient_gabor_min_response = config_.gabor_min_response;
     alg_params.hair_orient_rotate_res = config_.gabor_num_orientations;
     alg_params.bReconWithMask = config_.use_mask;
     alg_params.hair_pt_sample_radius = config_.pt_sample_radius;

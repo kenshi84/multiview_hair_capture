@@ -84,6 +84,8 @@ Config Config::LoadFromToml(const std::string& path) {
   f2("mvs", "gabor", "sigma", cfg.gabor_sigma);
   f2("mvs", "gabor", "gamma", cfg.gabor_gamma);
   f2("mvs", "gabor", "lambda", cfg.gabor_lambda);
+  f2("mvs", "gabor", "min_contrast", cfg.gabor_min_contrast);
+  f2("mvs", "gabor", "min_response", cfg.gabor_min_response);
 
   // [mvs.fusion]
   f2("mvs", "fusion", "position_threshold", cfg.fusion_position_threshold);
