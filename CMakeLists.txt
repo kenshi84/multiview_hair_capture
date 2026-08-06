@@ -7,6 +7,8 @@
 cmake_minimum_required(VERSION 3.18)
 project(hair_recon LANGUAGES CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)
@@ -77,12 +79,16 @@ set(STRAND_SOURCES
   src/strand/meanshift.cpp
   src/strand/strand_tracer.cpp
   src/strand/strand_cleaner.cpp
+  src/strand/orientation_cache.cpp
+  src/strand/hair_grower.cpp
   src/strand/mesh_generator.cpp
   src/strand/strand_io.cpp
 )
 
 set(STRAND_CUDA_SOURCES
   src/strand/meanshift.cu
+  src/strand/orientation_cache.cu
+  src/strand/hair_grower.cu
 )
 
 # ---- Build ----
@@ -132,3 +138,67 @@ else()
 endif()
 
 install(TARGETS hair_recon DESTINATION bin)
+
+# ---- Tests ----
+# These tests intentionally use a tiny self-contained harness instead of a
+# third-party unit-test framework. The CPU executable exercises the host
+# reference and cache format without requiring a visible GPU; the CUDA
+# executable compares the production kernels against that reference.
+if(BUILD_TESTING)
+  add_library(grow_test_support STATIC
+    src/common/config.cpp
+    src/common/camera.cpp
+    src/common/camera_array.cpp
+    src/common/logger.cpp
+    src/common/image_io.cpp
+    src/mvs/image_loader.cpp
+    src/mvs/gabor_orientation.cu
+    src/strand/orientation_cache.cpp
+    src/strand/orientation_cache.cu
+    src/strand/hair_grower.cpp
+    src/strand/hair_grower.cu
+  )
+
+  target_include_directories(grow_test_support PUBLIC
+    ${SRC_DIR}
+    ${THIRD_PARTY_DIR}/tomlplusplus
+    ${THIRD_PARTY_DIR}/stb
+    ${THIRD_PARTY_DIR}/tinyexr
+    ${THIRD_PARTY_DIR}/json/single_include
+  )
+
+  target_link_libraries(grow_test_support PUBLIC
+    CUDA::cudart
+    OpenMP::OpenMP_CXX
+  )
+
+  target_compile_options(grow_test_support PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:
+      --expt-relaxed-constexpr
+      -Xcudafe --diag_suppress=esa_on_defaulted_function_ignored
+    >
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/W3>
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall -Wextra -Wno-unused-parameter>
+  )
+
+  if(MSVC)
+    target_compile_definitions(grow_test_support PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+
+  add_executable(grow_cpu_test tests/grow_cpu_test.cpp)
+  target_link_libraries(grow_cpu_test PRIVATE grow_test_support)
+
+  add_executable(grow_cuda_test tests/grow_cuda_test.cu)
+  target_link_libraries(grow_cuda_test PRIVATE grow_test_support)
+  target_compile_options(grow_cuda_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  )
+
+  add_executable(grow_cli_test tests/grow_cli_test.cpp)
+  target_link_libraries(grow_cli_test PRIVATE CUDA::cudart)
+
+  add_test(NAME grow_cpu COMMAND grow_cpu_test)
+  add_test(NAME grow_cuda COMMAND grow_cuda_test)
+  add_test(NAME grow_cli COMMAND grow_cli_test $<TARGET_FILE:hair_recon>)
+  set_tests_properties(grow_cuda grow_cli PROPERTIES RUN_SERIAL TRUE)
+endif()

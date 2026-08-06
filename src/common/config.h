@@ -75,6 +75,21 @@ struct Config {
   float clean_outlier_radius = 10.0f;
   int clean_outlier_min_neighbors = 3;
 
+  // [grow]
+  float grow_step_size = 0.1f;
+  float grow_cone_half_angle = 5.0f;
+  float grow_direction_sample_step = 1.0f;
+  int grow_window_width = 3;
+  int grow_window_length = 10;
+  float grow_max_pixel_angle = 5.0f;
+  int grow_min_scored_pixels = 10;
+  int grow_min_views = 8;
+  float grow_max_direction_change = 45.0f;
+  int grow_irls_iterations = 2;
+  float grow_max_growth_length = 100.0f;
+  bool grow_use_mask = false;
+  float grow_min_intensity = 0.0f;
+
   // [debug]
   bool save_intermediates = false;
   int gpu_id = 0;

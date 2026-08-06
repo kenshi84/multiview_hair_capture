@@ -6,7 +6,7 @@ Official implementation of the [CVPR 2019 paper](https://openaccess.thecvf.com/c
 > Giljoo Nam, Chenglei Wu, Min H. Kim, Yaser Sheikh
 > *IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2019*
 
-End-to-end pipeline for capturing strand-level hair geometry from multi-view images: PatchMatch MVS with line-based matching, GPU mean-shift filtering, forward Euler strand tracing, and mesh generation. Note: multi-view hair growing (Section 6 of the paper) is not included in this release.
+End-to-end pipeline for capturing strand-level hair geometry from multi-view images: PatchMatch MVS with line-based matching, GPU mean-shift filtering, forward Euler strand tracing, multi-view hair growing, and mesh generation.
 
 ## Build
 
@@ -42,7 +42,7 @@ python scripts/prepare_multiface.py --subject_id 5067077
 ## Run
 
 ```bash
-# Full pipeline (MVS → mean-shift → trace → clean → mesh)
+# Full pipeline (MVS → mean-shift → trace → clean → grow → mesh)
 ./build/hair_recon pipeline configs/5067077.toml
 
 # Individual stages
@@ -50,13 +50,16 @@ python scripts/prepare_multiface.py --subject_id 5067077
 ./build/hair_recon meanshift configs/5067077.toml
 ./build/hair_recon trace     configs/5067077.toml
 ./build/hair_recon clean     configs/5067077.toml
+./build/hair_recon grow      configs/5067077.toml
 ./build/hair_recon mesh      configs/5067077.toml
 
 # Visualize results — requires: trimesh, pyrender, numpy, pillow
 python scripts/visualize.py configs/5067077.toml
 ```
 
-Set `num_gpus` in the config to distribute MVS and mean-shift across multiple GPUs. See [`configs/README.md`](configs/README.md) for input data format and full parameter reference.
+The `grow` stage extends both ends of every cleaned strand using the multi-view orientation fields and writes `strands_grown.bin` and `strands_grown.ply`. The `mesh` stage consumes `strands_grown.bin` exclusively.
+
+Set `num_gpus` in the config to distribute MVS, mean-shift, and hair growing across multiple GPUs. See [`configs/README.md`](configs/README.md) for input data format and full parameter reference.
 
 ## Dependencies
 

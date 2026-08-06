@@ -9,6 +9,8 @@
 
 #include "common/config.h"
 
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #define TOML_HEADER_ONLY 1
@@ -113,12 +115,106 @@ Config Config::LoadFromToml(const std::string& path) {
   f("clean", "outlier_radius", cfg.clean_outlier_radius);
   i("clean", "outlier_min_neighbors", cfg.clean_outlier_min_neighbors);
 
+  // [grow]
+  f("grow", "step_size", cfg.grow_step_size);
+  f("grow", "cone_half_angle", cfg.grow_cone_half_angle);
+  f("grow", "direction_sample_step", cfg.grow_direction_sample_step);
+  i("grow", "window_width", cfg.grow_window_width);
+  i("grow", "window_length", cfg.grow_window_length);
+  f("grow", "max_pixel_angle", cfg.grow_max_pixel_angle);
+  i("grow", "min_scored_pixels", cfg.grow_min_scored_pixels);
+  i("grow", "min_views", cfg.grow_min_views);
+  f("grow", "max_direction_change", cfg.grow_max_direction_change);
+  i("grow", "irls_iterations", cfg.grow_irls_iterations);
+  f("grow", "max_growth_length", cfg.grow_max_growth_length);
+  b("grow", "use_mask", cfg.grow_use_mask);
+  f("grow", "min_intensity", cfg.grow_min_intensity);
+
   // [debug]
   b("debug", "save_intermediates", cfg.save_intermediates);
   i("debug", "gpu_id", cfg.gpu_id);
   str("debug", "log_level", cfg.log_level);
   str("debug", "log_file", cfg.log_file);
   b("debug", "profile", cfg.profile);
+
+  auto require_finite_positive = [](float value, const char* name) {
+    if (!std::isfinite(value) || value <= 0.0f)
+      throw std::runtime_error(std::string(name) + " must be finite and > 0");
+  };
+  auto require_finite_range = [](float value, float lo, float hi,
+                                 const char* name) {
+    if (!std::isfinite(value) || value < lo || value > hi) {
+      throw std::runtime_error(std::string(name) + " must be in [" +
+                               std::to_string(lo) + ", " +
+                               std::to_string(hi) + "]");
+    }
+  };
+
+  require_finite_positive(cfg.grow_step_size, "grow.step_size");
+  if (!std::isfinite(cfg.grow_cone_half_angle) ||
+      cfg.grow_cone_half_angle < 0.0f || cfg.grow_cone_half_angle >= 90.0f) {
+    throw std::runtime_error(
+        "grow.cone_half_angle must be finite and in [0, 90)");
+  }
+  require_finite_positive(cfg.grow_direction_sample_step,
+                          "grow.direction_sample_step");
+  if (cfg.grow_cone_half_angle > 0.0f &&
+      cfg.grow_direction_sample_step > cfg.grow_cone_half_angle) {
+    throw std::runtime_error(
+        "grow.direction_sample_step cannot exceed grow.cone_half_angle");
+  }
+  const double grow_half_direction_samples =
+      std::floor(static_cast<double>(cfg.grow_cone_half_angle) /
+                 cfg.grow_direction_sample_step);
+  if (grow_half_direction_samples >
+      (static_cast<double>(std::numeric_limits<int>::max()) - 1.0) / 2.0) {
+    throw std::runtime_error(
+        "grow.cone_half_angle / grow.direction_sample_step is too large");
+  }
+  if (cfg.grow_window_width <= 0)
+    throw std::runtime_error("grow.window_width must be > 0");
+  if (cfg.grow_window_width % 2 == 0)
+    throw std::runtime_error("grow.window_width must be odd");
+  if (cfg.grow_window_length <= 0)
+    throw std::runtime_error("grow.window_length must be > 0");
+  require_finite_range(cfg.grow_max_pixel_angle, 0.0f, 90.0f,
+                       "grow.max_pixel_angle");
+  if (cfg.grow_min_scored_pixels <= 0)
+    throw std::runtime_error("grow.min_scored_pixels must be > 0");
+  const long long max_window_pixels =
+      static_cast<long long>(cfg.grow_window_width) * cfg.grow_window_length;
+  if (cfg.grow_min_scored_pixels > max_window_pixels) {
+    throw std::runtime_error(
+        "grow.min_scored_pixels cannot exceed grow.window_width * "
+        "grow.window_length");
+  }
+  if (cfg.grow_min_views < 2)
+    throw std::runtime_error("grow.min_views must be >= 2");
+  if (!std::isfinite(cfg.grow_max_direction_change) ||
+      cfg.grow_max_direction_change <= 0.0f ||
+      cfg.grow_max_direction_change > 180.0f) {
+    throw std::runtime_error(
+        "grow.max_direction_change must be finite and in (0, 180]");
+  }
+  if (cfg.grow_irls_iterations < 0)
+    throw std::runtime_error("grow.irls_iterations must be >= 0");
+  require_finite_positive(cfg.grow_max_growth_length,
+                          "grow.max_growth_length");
+  const double growth_step_ratio =
+      static_cast<double>(cfg.grow_max_growth_length) / cfg.grow_step_size;
+  const double nearest_growth_steps = std::round(growth_step_ratio);
+  const double growth_step_tolerance =
+      32.0 * std::numeric_limits<float>::epsilon() *
+      std::fmax(1.0, std::fabs(growth_step_ratio));
+  const double stable_growth_steps =
+      std::fabs(growth_step_ratio - nearest_growth_steps) <=
+              growth_step_tolerance
+          ? nearest_growth_steps
+          : std::floor(growth_step_ratio);
+  if (stable_growth_steps > std::numeric_limits<int>::max())
+    throw std::runtime_error("grow.max_growth_length / grow.step_size is too large");
+  require_finite_range(cfg.grow_min_intensity, 0.0f, 1.0f,
+                       "grow.min_intensity");
 
   return cfg;
 }

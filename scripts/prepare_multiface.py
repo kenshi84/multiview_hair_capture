@@ -536,6 +536,21 @@ min_length = 5.0
 outlier_radius = 10.0
 outlier_min_neighbors = 3
 
+[grow]
+step_size = 0.1
+cone_half_angle = 5.0
+direction_sample_step = 1.0
+window_width = 3
+window_length = 10
+max_pixel_angle = 5.0
+min_scored_pixels = 10
+min_views = 8
+max_direction_change = 45.0
+irls_iterations = 2
+max_growth_length = 100.0
+use_mask = false
+min_intensity = 0.0
+
 [debug]
 gpu_id = 0
 log_level = "info"

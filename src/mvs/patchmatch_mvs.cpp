@@ -31,6 +31,7 @@
 #include "mvs/patchmatch/hierarchical.h"
 #include "mvs/patchmatch/image_ops.h"
 #include "mvs/patchmatch/params.h"
+#include "strand/orientation_cache.h"
 
 PatchMatchMvs::PatchMatchMvs(const Config& config, const CameraArray& cameras)
     : config_(config), cameras_(cameras) {
@@ -346,6 +347,15 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
 
     hpm.Run(d_refMap, h_neiTexObjs.data(), d_lineMap, d_orient2D, d_variance, d_cost,
             d_refMask, d_neiMaskPtrs);
+
+    // Persist the full-resolution orientation field for the later hair-growing
+    // stage. Cache failures do not invalidate the MVS result: standalone grow
+    // will retry generation from the source image.
+    if (!orientation_cache::StoreDeviceMaps(
+            config_, ref_cam, ref_index, width, height, d_orient2D, d_variance,
+            0, 0, gpu_id)) {
+      LOG_WARN("Failed to cache grow orientation map for camera %u", ref_cam_id);
+    }
 
     // 9b. Save per-view intermediates if requested
     if (config_.save_intermediates && !config_.output_dir.empty()) {

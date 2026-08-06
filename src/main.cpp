@@ -9,6 +9,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <string>
 
@@ -24,6 +25,7 @@
 #include "strand/meanshift.h"
 #include "strand/strand_tracer.h"
 #include "strand/strand_cleaner.h"
+#include "strand/hair_grower.h"
 #include "strand/mesh_generator.h"
 #include "strand/strand_io.h"
 
@@ -34,6 +36,7 @@ static void PrintUsage(const char* prog) {
   printf("  meanshift  Mean-shift 3D line fusion (CUDA)\n");
   printf("  trace      Forward Euler strand tracing\n");
   printf("  clean      Remove short + outlier strands\n");
+  printf("  grow       Multi-view strand-tip growing (CUDA)\n");
   printf("  mesh       Cylinder mesh generation\n");
   printf("  pipeline   Run all stages end-to-end\n");
 }
@@ -113,11 +116,45 @@ static int RunClean(const Config& cfg) {
   return 0;
 }
 
+static int RunGrow(const Config& cfg) {
+  PROFILE_SCOPE("Multi-view Hair Growing");
+
+  std::vector<Strand> strands;
+  std::string in_path = cfg.output_dir + "/strands_clean.bin";
+  if (!strand_io::ReadBinary(in_path, strands))
+    return 1;
+
+  std::vector<Strand> grown;
+  if (strands.empty()) {
+    // An empty reconstruction is a valid input and does not require camera
+    // images. Still emit both expected outputs so later stages remain usable.
+    grown = strands;
+  } else {
+    CameraArray cameras;
+    if (!cameras.LoadFromJson(cfg.cameras_json))
+      return 1;
+
+    try {
+      grown = hair_grower::GrowCuda(strands, cameras, cfg, cfg.gpu_id,
+                                    cfg.num_gpus);
+    } catch (const std::exception& e) {
+      LOG_ERROR("Hair growing failed: %s", e.what());
+      return 1;
+    }
+  }
+
+  std::string out_ply = cfg.output_dir + "/strands_grown.ply";
+  std::string out_bin = cfg.output_dir + "/strands_grown.bin";
+  const bool ply_ok = strand_io::WritePly(out_ply, grown);
+  const bool bin_ok = strand_io::WriteBinary(out_bin, grown);
+  return ply_ok && bin_ok ? 0 : 1;
+}
+
 static int RunMesh(const Config& cfg) {
   PROFILE_SCOPE("Mesh Generation");
 
   std::vector<Strand> strands;
-  std::string in_path = cfg.output_dir + "/strands_clean.bin";
+  std::string in_path = cfg.output_dir + "/strands_grown.bin";
   if (!strand_io::ReadBinary(in_path, strands))
     return 1;
 
@@ -146,7 +183,11 @@ static int RunPipeline(const Config& cfg) {
   if (RunClean(cfg) != 0)
     return 1;
 
-  LOG_INFO("=== Stage 5: Mesh Generation ===");
+  LOG_INFO("=== Stage 5: Multi-view Hair Growing ===");
+  if (RunGrow(cfg) != 0)
+    return 1;
+
+  LOG_INFO("=== Stage 6: Mesh Generation ===");
   if (RunMesh(cfg) != 0)
     return 1;
 
@@ -196,6 +237,8 @@ int main(int argc, char* argv[]) {
     ret = RunTrace(cfg);
   else if (strcmp(command, "clean") == 0)
     ret = RunClean(cfg);
+  else if (strcmp(command, "grow") == 0)
+    ret = RunGrow(cfg);
   else if (strcmp(command, "mesh") == 0)
     ret = RunMesh(cfg);
   else if (strcmp(command, "pipeline") == 0)

@@ -8,8 +8,8 @@ All parameters with their defaults. Omitted parameters use the default values sh
 |-----------|---------|-------------|
 | `cameras_json` | (required) | Path to camera calibration JSON file |
 | `image_dir` | (required) | Printf pattern for image paths, e.g., `data/images/%06d.png`. The camera ID (unsigned int) is formatted into the pattern. |
-| `mask_dir` | `""` | Printf pattern for hair mask paths. Same naming convention as `image_dir`. Only used when `use_mask = true`. |
-| `output_dir` | (required) | Directory for all output files (fused.ply, strands, mesh) |
+| `mask_dir` | `""` | Printf pattern for hair mask paths. Same naming convention as `image_dir`. Used when either `mvs.use_mask` or `grow.use_mask` is enabled. |
+| `output_dir` | (required) | Directory for all output files (fused point cloud, raw/clean/grown strands, and mesh) |
 | `downsample` | `1.0` | Image downscale factor applied after loading. `0.5` = half resolution. Intrinsics are scaled accordingly. |
 | `distorted_images` | `false` | If `true`, images are undistorted at load time using distortion coefficients from `cameras.json`. Set to `true` when using raw camera images. |
 
@@ -32,7 +32,7 @@ All parameters with their defaults. Omitted parameters use the default values sh
 | `min_angle` | `1.0` | Minimum baseline angle (degrees) between reference and neighbor camera, measured at the centroid of all camera centers. Views closer than this are excluded. |
 | `max_angle` | `90.0` | Maximum baseline angle (degrees), measured at the centroid of all camera centers. Views farther than this are excluded. |
 | `num_view_select` | `4` | Best-K view selection during cost evaluation. Of all neighbor views, only the K with lowest cost contribute to the final cost. |
-| `num_gpus` | `1` | Number of GPUs for MVS and mean-shift. Views are distributed across GPUs via OpenMP. |
+| `num_gpus` | `1` | Number of GPUs for MVS, mean-shift, and hair growing. MVS views and independent strand-tip batches are distributed across GPUs. |
 
 ### Cost Function
 
@@ -112,6 +112,30 @@ Post-processing to remove short strands and spatially isolated outliers.
 | `min_length` | `5.0` | Minimum strand length (mm). Strands shorter than this are removed. |
 | `outlier_radius` | `10.0` | Radius (mm) for outlier detection. A strand is an outlier if it has too few neighboring strands within this radius. Set to 0 to disable. |
 | `outlier_min_neighbors` | `3` | Minimum number of distinct neighboring strands within `outlier_radius` to keep a strand. |
+
+## `[grow]`
+
+Multi-view growing extends both tips of every cleaned strand. At each step it
+scores candidate projected directions against the Gabor orientation fields,
+triangulates a supported 3D direction, and stops when image support or geometric
+continuity is lost. Orientation/variance maps are cached in
+`output_dir/.grow_cache/`; stale or missing maps are regenerated automatically.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `step_size` | `0.1` | Distance (mm) advanced by each accepted growth step. |
+| `cone_half_angle` | `5.0` | Half-angle (degrees) of the candidate direction cone around the projected tip tangent. |
+| `direction_sample_step` | `1.0` | Angular spacing (degrees) between candidate directions inside the cone. |
+| `window_width` | `3` | Width (pixels) of each forward directional scoring window. |
+| `window_length` | `10` | Forward length (pixels) of each directional scoring window. |
+| `max_pixel_angle` | `5.0` | Maximum modulo-180-degree orientation error (degrees) for an image sample to support a candidate. |
+| `min_scored_pixels` | `10` | Minimum number of valid, matching pixels required for a view to support a candidate direction. |
+| `min_views` | `8` | Minimum number of supporting views required to triangulate and accept a growth step. At least this many readable, compatible views must be available. |
+| `max_direction_change` | `45.0` | Maximum 3D direction change (degrees) between consecutive growth steps. |
+| `irls_iterations` | `2` | Number of stabilized IRLS refinements used for robust multi-view direction fitting. |
+| `max_growth_length` | `100.0` | Per-tip growth safety limit (mm). |
+| `use_mask` | `false` | Require mask foreground for individual samples and point-support votes. Mask failures remove that view's vote rather than vetoing the point globally. |
+| `min_intensity` | `0.0` | Minimum normalized image intensity for individual samples and point-support votes. `0` disables intensity gating. When masks are also enabled, samples must pass both gates. |
 
 ## `[debug]`
 
