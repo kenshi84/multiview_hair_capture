@@ -144,28 +144,29 @@ __device__ inline float2 MultiViewLineCost(const PatchMatchInput& input,
       float tmpintennei =
           GetIntensityBilinearTex(pos_nei, d_neiGrayTex[view], width, height);
 
-      mean_left += tmpintenref;
-      std_left += tmpintenref * tmpintenref;
-      mean_right += tmpintennei;
-      std_right += tmpintennei * tmpintennei;
-      tmpcost += tmpintenref * tmpintennei;
       sizesample++;
+      float inv_n = 1.0f / static_cast<float>(sizesample);
+      float dx = tmpintenref - mean_left;
+      float dy = tmpintennei - mean_right;
+      mean_left += dx * inv_n;
+      mean_right += dy * inv_n;
+      // Centered sums of squares and cross-products.
+      std_left += dx * (tmpintenref - mean_left);
+      std_right += dy * (tmpintennei - mean_right);
+      tmpcost += dx * (tmpintennei - mean_right);
     }
 
-    if (sizesample == 0) {
+    if (sizesample < 2 || !(std_left > 0.0f) || !(std_right > 0.0f)) {
       tmpcost = MAXCOST_HAIR_COLOR;
     } else {
-      mean_left /= (float) sizesample;
-      mean_right /= (float) sizesample;
-      tmpcost -= sizesample * mean_left * mean_right;
-      float std_total_sqrt = sqrtf((std_left - sizesample * mean_left * mean_left) *
-                                   (std_right - sizesample * mean_right * mean_right));
-      if (std_total_sqrt == 0.0f || isnan(std_total_sqrt)) {
+      float std_total_sqrt = sqrtf(std_left * std_right);
+      if (!(std_total_sqrt > 0.0f) || !isfinite(std_total_sqrt)) {
         tmpcost = MAXCOST_HAIR_COLOR;
       } else {
-        tmpcost /= std_total_sqrt;
-        tmpcost = (1.0f - tmpcost) * 0.5f;
-        tmpcost = MIN(MAXCOST_HAIR_COLOR, tmpcost);
+        float rho = tmpcost / std_total_sqrt;
+        tmpcost = isfinite(rho)
+                      ? 0.5f * (1.0f - fminf(1.0f, fmaxf(-1.0f, rho)))
+                      : MAXCOST_HAIR_COLOR;
       }
     }
     vec_cost_color[cost_color_count++] = tmpcost;
