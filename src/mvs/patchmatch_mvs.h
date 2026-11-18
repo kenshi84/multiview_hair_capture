@@ -18,12 +18,12 @@
 #include "common/point_cloud.h"
 #include "common/types.h"
 
-// Per-view MVS result stored in camera-local coordinates for fusion.
+// Per-view MVS result with line positions and directions in world coordinates.
 struct ViewMvsResult {
   int ref_index = -1;            // index in CameraArray
   unsigned int width = 0;        // image width (after downsample)
   unsigned int height = 0;       // image height (after downsample)
-  std::vector<Line3D> line_map;  // camera-local line3D (width*height)
+  std::vector<Line3D> line_map;  // world-space line3D indexed by image pixel (width*height)
   std::vector<int> nei_indices;  // neighbor view indices in CameraArray
 };
 

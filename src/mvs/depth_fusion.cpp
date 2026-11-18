@@ -28,14 +28,14 @@ static inline bool IsValidLine(const Line3D& l) {
   return pp > 0 || vv > 0;
 }
 
-// Project a 3D point (in reference camera coordinates) into a neighbor view.
+// Project a world-space 3D point into a neighbor view.
 // Returns the image position (out_x, out_y) in the neighbor's image space.
-// The neighbor camera is specified by its relative [R|t] and scaled K.
+// The neighbor camera is specified by its world-to-camera [R|t] and scaled K.
 static inline bool ProjectToNeighbor(const Vec3f& p_ref, const Mat3x3f& nei_R,
                                      const Vec3f& nei_t, const Mat3x3f& nei_K,
                                      unsigned int nei_w, unsigned int nei_h,
                                      float& out_x, float& out_y) {
-  // Transform from reference coords to neighbor camera coords
+  // Transform from world coordinates to neighbor camera coordinates.
   Vec3f p_nei = nei_R * p_ref + nei_t;
   if (p_nei.z <= 0)
     return false;
@@ -71,17 +71,11 @@ PointCloud FusePointClouds(const std::vector<ViewMvsResult>& view_results,
   LOG_INFO("  pos_thresh=%.1f mm, orient_thresh=%.1f deg, min_nei=%d", pos_thresh,
            config.fusion_orientation_threshold, min_neighbors);
 
-  // For quick lookup of view results by CameraArray index.
-  // view_results[i] corresponds to cameras index i.
-  // We need each neighbor's line3D map. The neighbor is identified by its
-  // CameraArray index. Each view was processed as a reference view, so
-  // view_results[nei_index] has that view's camera-local line3D.
-  //
-  // IMPORTANT: Each view's line3D is in its OWN camera-local coords.
-  // When we project ref_line.p into neighbor image space, we get image coords.
-  // We then look up the neighbor's line3D at that pixel.
-  // The neighbor's line3D is in the NEIGHBOR's camera-local coords.
-  // We must transform it back to the reference camera's coords for comparison.
+  // view_results[i] corresponds to CameraArray index i.
+  // ProcessReferenceView converts valid line positions and directions to world
+  // coordinates before storing them. Project reference positions into each
+  // neighbor's image to find candidates, then compare both lines directly in
+  // world coordinates.
 
   PointCloud fused;
   size_t total_valid = 0;
@@ -97,12 +91,12 @@ PointCloud FusePointClouds(const std::vector<ViewMvsResult>& view_results,
 
     int num_nei = static_cast<int>(ref.nei_indices.size());
 
-    // Precompute neighbor data: relative R, t, R^T, K, and pointer to
-    // neighbor's line3D map (if available).
+    // Precompute each neighbor's world-to-camera transform, scaled intrinsics,
+    // and world-space line3D map (if available).
     struct NeiInfo {
-      Mat3x3f R_rel;      // nei relative to ref (forward: ref->nei)
-      Vec3f t_rel;        // nei relative to ref
-      Mat3x3f R_rel_T;    // transpose (inverse rotation: nei->ref)
+      Mat3x3f R_rel;      // world-to-neighbor camera rotation
+      Vec3f t_rel;        // world-to-neighbor camera translation
+      Mat3x3f R_rel_T;    // transpose (neighbor camera-to-world rotation)
       Mat3x3f K;          // neighbor's scaled intrinsic
       const Line3D* map;  // neighbor's line3D map (world coords)
       unsigned int w, h;  // neighbor image dimensions
@@ -116,9 +110,7 @@ PointCloud FusePointClouds(const std::vector<ViewMvsResult>& view_results,
 
       int nei_idx = ref.nei_indices[k];
 
-      // Line3D is in WORLD coordinates. Use GLOBAL camera K/R/t for projection.
-      // Use global extrinsics for world-space projection:
-      // m_cameras.cameras[camind].A, .Rt (global extrinsic)
+      // Use the neighbor's world-to-camera extrinsics and scaled intrinsics.
       if (nei_idx >= 0 && nei_idx < cameras.NumCameras()) {
         const Camera& nei_cam = cameras.GetCamera(nei_idx);
         GpuCamera nei_gpu_cam = nei_cam.BuildGpuCamera();
@@ -167,7 +159,7 @@ PointCloud FusePointClouds(const std::vector<ViewMvsResult>& view_results,
           if (ni.map == nullptr)
             continue;
 
-          // Project ref point into neighbor image
+          // Project the reference view's world-space point into the neighbor image.
           float img_x, img_y;
           if (!ProjectToNeighbor(ref_p, ni.R_rel, ni.t_rel, ni.K, ni.w, ni.h, img_x,
                                  img_y))
@@ -194,12 +186,12 @@ PointCloud FusePointClouds(const std::vector<ViewMvsResult>& view_results,
               Vec3f nei_p(nei_line.p.x, nei_line.p.y, nei_line.p.z);
               Vec3f nei_v(nei_line.v.x, nei_line.v.y, nei_line.v.z);
 
-              // Position consistency
+              // Position consistency in world coordinates.
               float dist = (ref_p - nei_p).Magnitude();
               if (dist > pos_thresh)
                 continue;
 
-              // Orientation consistency (symmetric direction)
+              // Orientation consistency in world coordinates (symmetric direction).
               float dot = ref_v * nei_v;
               if (std::abs(dot) > orient_cos_thresh) {
                 found = true;
