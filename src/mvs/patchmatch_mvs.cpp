@@ -164,6 +164,8 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
     alg_params.depthMin = config_.min_depth;
     alg_params.depthMax = config_.max_depth;
     alg_params.iterations = config_.iterations;
+    alg_params.hair_refinement_iterations = config_.refinement_iterations;
+    alg_params.hair_refinement_halve_freq = config_.refinement_halve_freq;
     alg_params.hair_alpha = config_.alpha;
     alg_params.hair_orient_gabor_ksize = config_.gabor_kernel_size;
     alg_params.hair_orient_gabor_sigma = config_.gabor_sigma;

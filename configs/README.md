@@ -49,9 +49,11 @@ All parameters with their defaults. Omitted parameters use the default values sh
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `iterations` | `8` | PatchMatch iterations at the **coarsest** pyramid level. Finer levels use proportionally fewer iterations (scaled by `sqrt(level_width / coarsest_width)`, clamped at min 4). |
+| `refinement_iterations` | `9` | Random line refinement trials per pixel per PatchMatch iteration. The count is the same at every pyramid level. Must be non-negative; `0` disables random refinement. |
+| `refinement_halve_freq` | `3` | Halve both depth and direction perturbation widths after every N random refinement trials. Must be positive. The schedule restarts on each refinement pass. |
 | `patch_size` | `21` | Support patch size in pixels. The half-size (`patch_size / 2`) is used as the box radius. |
-| `delta_depth` | `30.0` | Max random perturbation for depth (mm) during refinement. Halved every 3 refinement iterations within a pass. Also scaled per pyramid level (smaller at finer levels). |
-| `delta_orient` | `0.8` | Max random perturbation added to each component of the unit direction vector, then renormalized. Halved every 3 refinement iterations within a pass. Also scaled per pyramid level (smaller at finer levels). |
+| `delta_depth` | `30.0` | Max random perturbation for depth (mm) during refinement. Halved every `refinement_halve_freq` trials within a pass. Also scaled per pyramid level (smaller at finer levels). |
+| `delta_orient` | `0.8` | Max random perturbation added to each component of the unit direction vector, then renormalized. Halved every `refinement_halve_freq` trials within a pass. Also scaled per pyramid level (smaller at finer levels). |
 | `spatial_prop_radius` | `5.0` | Radius (pixels) for disk-based spatial propagation. Random pixels within this radius are tested as propagation candidates. |
 
 ### `[mvs.gabor]`

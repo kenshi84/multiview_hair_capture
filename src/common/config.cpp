@@ -62,6 +62,12 @@ Config Config::LoadFromToml(const std::string& path) {
   f("mvs", "min_depth", cfg.min_depth);
   f("mvs", "max_depth", cfg.max_depth);
   i("mvs", "iterations", cfg.iterations);
+  i("mvs", "refinement_iterations", cfg.refinement_iterations);
+  if (cfg.refinement_iterations < 0)
+    throw std::runtime_error("mvs.refinement_iterations must be non-negative");
+  i("mvs", "refinement_halve_freq", cfg.refinement_halve_freq);
+  if (cfg.refinement_halve_freq <= 0)
+    throw std::runtime_error("mvs.refinement_halve_freq must be positive");
   i("mvs", "patch_size", cfg.patch_size);
   i("mvs", "num_hierarchy_levels", cfg.num_hierarchy_levels);
   i("mvs", "num_neighbor_views", cfg.num_neighbor_views);

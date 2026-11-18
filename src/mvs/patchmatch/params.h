@@ -25,6 +25,8 @@ struct PatchMatchParams {
   int hair_pt_sample_kappa = 41;
   float hair_delta_orient = 0.8f;
   float hair_delta_depth = 30.0f;
+  int hair_refinement_iterations = 9;
+  int hair_refinement_halve_freq = 3;
   float hair_spatial_prop_radius = 5.0f;
   int hair_num_view_select = 4;
   int hair_mask_min_neighbor_views = 1;
@@ -45,6 +47,8 @@ struct AlgorithmParams {
   int hair_pt_sample_kappa = 41;
   float hair_delta_orient = 0.8f;
   float hair_delta_depth = 30.0f;
+  int hair_refinement_iterations = 9;
+  int hair_refinement_halve_freq = 3;
   float hair_spatial_prop_radius = 5.0f;
   int hair_num_view_select = 4;
   int hair_mask_min_neighbor_views = 1;

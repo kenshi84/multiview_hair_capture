@@ -71,7 +71,8 @@ __device__ inline void LineRefinementHair(const PatchMatchInput& input,
   float delta_depth = parameters.hair_delta_depth;
   Line3D line_new;
 
-  const int maxiter = 9;
+  const int maxiter = parameters.hair_refinement_iterations;
+  const int halve_freq = parameters.hair_refinement_halve_freq;
   for (int i = 0; i < maxiter; i++) {
     GetRndLine3DCu(line_now, line_new, pos, input.invIntrinsic, delta_depth,
                    delta_orient, parameters.depthMin, parameters.depthMax, &localState);
@@ -89,7 +90,7 @@ __device__ inline void LineRefinementHair(const PatchMatchInput& input,
       line_now = line_new;
     }
 
-    if (i % 3 == 2) {
+    if ((i + 1) % halve_freq == 0) {
       delta_orient /= 2.0f;
       delta_depth /= 2.0f;
     }

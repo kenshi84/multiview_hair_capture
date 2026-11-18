@@ -24,6 +24,8 @@ struct Config {
   float min_depth = 800.0f;
   float max_depth = 1400.0f;
   int iterations = 8;
+  int refinement_iterations = 9;
+  int refinement_halve_freq = 3;
   int patch_size = 21;
   int num_hierarchy_levels = 4;
   int num_neighbor_views = 25;
