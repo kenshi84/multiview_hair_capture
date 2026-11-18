@@ -54,8 +54,6 @@ static PatchMatchParams BuildPMParams(const AlgorithmParams& ap) {
   pm.depthMin = ap.depthMin;
   pm.depthMax = ap.depthMax;
   pm.maxIt = ap.iterations;
-  pm.deltaNormal = ap.deltaNormal;
-  pm.deltaDisp = ap.deltaDisp;
   pm.bMaskInput = ap.bReconWithMask;
   pm.box_hsize = ap.box_hsize;
   pm.box_vsize = ap.box_vsize;
@@ -185,8 +183,8 @@ void HierarchicalPatchMatch::Allocate(std::vector<unsigned int>& widths,
                               static_cast<float>(origW));
     newparams.iterations = std::max(
         4, static_cast<int>(static_cast<float>(params_.iterations) * tmpinvscale));
-    newparams.deltaNormal = params_.deltaNormal * tmpinvscale;
-    newparams.deltaDisp = params_.deltaDisp * tmpinvscale;
+    newparams.hair_delta_orient = params_.hair_delta_orient * tmpinvscale;
+    newparams.hair_delta_depth = params_.hair_delta_depth * tmpinvscale;
     params_at_level_[i] = newparams;
 
     // --- Level 0: orient/variance for ref and neighbors ---

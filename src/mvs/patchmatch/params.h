@@ -16,8 +16,6 @@ struct PatchMatchParams {
   int box_vsize = 10;
   float depthMin = 800.0f;
   float depthMax = 1400.0f;
-  float deltaNormal = 0.2f;
-  float deltaDisp = 50.0f;
   bool bMaskInput = false;
   int maxIt = 8;
 
@@ -56,8 +54,6 @@ struct AlgorithmParams {
   int iterations = 8;
   float depthMin = -1.0f;
   float depthMax = -1.0f;
-  float deltaNormal = 0.8f;
-  float deltaDisp = 50.0f;
   bool bReconWithMask = false;
   int cols = 0;
   int rows = 0;
