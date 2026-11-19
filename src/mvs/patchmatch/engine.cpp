@@ -61,7 +61,8 @@ PatchMatchEngine::~PatchMatchEngine() {
   // Free state buffers
   if (state_.d_cs)
     cudaFree(state_.d_cs);
-  // d_line3D is supplied and owned by HierarchicalPatchMatch for each level.
+  // d_line3D is borrowed. PatchMatchMvs owns the level-0 map and
+  // HierarchicalPatchMatch owns the coarser maps.
   if (state_.d_cost_orient)
     cudaFree(state_.d_cost_orient);
   if (state_.d_cost_color)
