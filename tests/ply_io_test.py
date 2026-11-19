@@ -36,9 +36,45 @@ def check_round_trip(executable, directory):
         output.replace(source)
 
 
+def check_strand_export(executable, directory):
+    config = directory / 'clean.toml'
+    config.write_text('[data]\noutput_dir = "."\n[clean]\n'
+                      'min_length = 0.0\noutlier_radius = 0.0\n')
+    first = (1, 2, 3, 2, 0, 0)
+    second = (4, 5, 6, -1, 0, 0)
+    third = (7, 8, 9, 0, 0.5, 0)
+    # The empty middle strand leaves a gap between the exported strand indices.
+    strands = bytearray(struct.pack('<i', 3))
+    for points in ((first, second), (), (third,)):
+        strands.extend(struct.pack('<i', len(points)))
+        for point in points:
+            strands.extend(struct.pack('<6f', *point))
+    vertex = struct.Struct('<6fI3B')
+    expected = (vertex.pack(*first, 0, 59, 87, 177) +
+                vertex.pack(*second, 0, 59, 87, 177) +
+                vertex.pack(*third, 2, 190, 149, 177))
+    axes = ('x', 'y', 'z', 'nx', 'ny', 'nz')
+    properties = ([f'property float {axis}' for axis in axes] +
+                  ['property uint label'] +
+                  [f'property uchar {channel}' for channel in ('red', 'green', 'blue')])
+
+    output = directory / 'strands_clean.ply'
+    for source, expected_records in ((strands, expected), (struct.pack('<i', 0), b'')):
+        (directory / 'strands_raw.bin').write_bytes(source)
+        subprocess.run([executable, 'clean', config], cwd=directory, check=True)
+        header, records = output.read_bytes().split(b'end_header\n', 1)
+        lines = header.decode('ascii').splitlines()
+        assert 'format binary_little_endian 1.0' in lines
+        assert f'element vertex {len(expected_records) // vertex.size}' in lines
+        assert [line for line in lines if line.startswith('property ')] == properties
+        assert records == expected_records
+        assert (directory / 'strands_clean.bin').read_bytes() == source
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('hair_recon', type=Path)
     executable = parser.parse_args().hair_recon.resolve()
     with TemporaryDirectory() as temp:
         check_round_trip(executable, Path(temp))
+        check_strand_export(executable, Path(temp))

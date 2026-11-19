@@ -62,13 +62,10 @@ void AddTriples(happly::Element& vertices, const PropertyNames& names,
   }
 }
 
-happly::Element& AddVertices(happly::PLYData& ply, const std::vector<float>& positions,
-                             const std::vector<float>& normals) {
+happly::Element& AddVertices(happly::PLYData& ply, const std::vector<float>& positions) {
   ply.addElement("vertex", positions.size() / 3);
   auto& vertices = ply.getElement("vertex");
   AddTriples(vertices, kPositions, positions);
-  if (!normals.empty())
-    AddTriples(vertices, kNormals, normals);
   return vertices;
 }
 
@@ -108,11 +105,18 @@ bool ReadPointCloud(const std::string& path, PointCloud& cloud) {
   }
 }
 
-bool WritePointCloud(const std::string& path, const PointCloud& cloud, bool binary) {
+bool WritePointCloud(const std::string& path, const PointCloud& cloud, bool binary,
+                     bool include_strand_labels) {
   try {
     happly::PLYData ply;
-    auto& vertices = AddVertices(ply, cloud.positions, cloud.directions);
-    if (!cloud.directions.empty()) {
+    auto& vertices = AddVertices(ply, cloud.positions);
+    // Empty strand exports declare the same vertex properties as populated ones.
+    if (!cloud.directions.empty() || include_strand_labels) {
+      AddTriples(vertices, kNormals, cloud.directions);
+      if (include_strand_labels) {
+        std::vector<std::uint32_t> labels(cloud.labels.begin(), cloud.labels.end());
+        vertices.addProperty("label", labels);
+      }
       std::vector<unsigned char> colors(cloud.directions.size());
       Boys2RGB(colors.data(), cloud.directions.data(), vertices.count);
       AddTriples(vertices, {"red", "green", "blue"}, colors);
@@ -135,7 +139,9 @@ bool WriteMesh(const std::string& path, const std::vector<float>& vertices,
       throw std::invalid_argument("Expected three vertex indices per triangle");
 
     happly::PLYData ply;
-    AddVertices(ply, vertices, normals);
+    auto& mesh_vertices = AddVertices(ply, vertices);
+    if (!normals.empty())
+      AddTriples(mesh_vertices, kNormals, normals);
     const size_t num_faces = faces.size() / 3;
     ply.addElement("face", num_faces);
 

@@ -11,8 +11,11 @@
 
 #include <cmath>
 #include <cstdio>
+#include <limits>
+#include <stdexcept>
 
 #include "common/logger.h"
+#include "common/ply_io.h"
 
 float Strand::Length() const {
   float len = 0;
@@ -89,49 +92,36 @@ bool ReadBinary(const std::string& path, std::vector<Strand>& strands) {
 }
 
 bool WritePly(const std::string& path, const std::vector<Strand>& strands) {
-  PointCloud cloud = StrandsToPointCloud(strands);
-
-  FILE* f = fopen(path.c_str(), "wb");
-  if (!f) {
-    LOG_ERROR("Failed to open %s for writing", path.c_str());
+  try {
+    return ply_io::WritePointCloud(path, StrandsToPointCloud(strands), /*binary=*/true,
+                                   /*include_strand_labels=*/true);
+  } catch (const std::exception& e) {
+    LOG_ERROR("Cannot export strands to %s: %s", path.c_str(), e.what());
     return false;
   }
-
-  size_t n = cloud.NumPoints();
-  fprintf(f, "ply\n");
-  fprintf(f, "format binary_little_endian 1.0\n");
-  fprintf(f, "element vertex %zu\n", n);
-  fprintf(f, "property float x\n");
-  fprintf(f, "property float y\n");
-  fprintf(f, "property float z\n");
-  fprintf(f, "property float nx\n");
-  fprintf(f, "property float ny\n");
-  fprintf(f, "property float nz\n");
-  fprintf(f, "property uint label\n");
-  fprintf(f, "end_header\n");
-
-  for (size_t i = 0; i < n; ++i) {
-    fwrite(&cloud.positions[i * 3], sizeof(float), 3, f);
-    fwrite(&cloud.directions[i * 3], sizeof(float), 3, f);
-    unsigned int label = static_cast<unsigned int>(cloud.labels[i]);
-    fwrite(&label, sizeof(unsigned int), 1, f);
-  }
-
-  fclose(f);
-  LOG_INFO("Wrote %zu strand points (%zu strands) to %s", n, strands.size(),
-           path.c_str());
-  return true;
 }
 
 PointCloud StrandsToPointCloud(const std::vector<Strand>& strands) {
+  if (strands.size() > static_cast<size_t>(std::numeric_limits<int>::max()) + 1)
+    throw std::overflow_error("Strand index exceeds the PointCloud label range");
+
+  size_t num_points = 0;
+  for (const auto& strand : strands) {
+    if (strand.positions.size() % 3 != 0 ||
+        strand.directions.size() != strand.positions.size())
+      throw std::invalid_argument("Expected a position and direction per strand point");
+    num_points += strand.NumPoints();
+  }
+
   PointCloud cloud;
-  for (int si = 0; si < static_cast<int>(strands.size()); ++si) {
-    const auto& s = strands[si];
-    for (size_t i = 0; i < s.NumPoints(); ++i) {
-      cloud.AddPoint(s.positions[i * 3], s.positions[i * 3 + 1], s.positions[i * 3 + 2],
-                     s.directions[i * 3], s.directions[i * 3 + 1],
-                     s.directions[i * 3 + 2], si);
-    }
+  cloud.Reserve(num_points);
+  for (size_t si = 0; si < strands.size(); ++si) {
+    const auto& strand = strands[si];
+    cloud.positions.insert(cloud.positions.end(), strand.positions.begin(),
+                           strand.positions.end());
+    cloud.directions.insert(cloud.directions.end(), strand.directions.begin(),
+                            strand.directions.end());
+    cloud.labels.insert(cloud.labels.end(), strand.NumPoints(), static_cast<int>(si));
   }
   return cloud;
 }

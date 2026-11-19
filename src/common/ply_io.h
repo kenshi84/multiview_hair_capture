@@ -18,8 +18,9 @@ namespace ply_io {
 
 bool ReadPointCloud(const std::string& path, PointCloud& cloud);
 
+// Strand exports include normals, Boys2RGB colors and an unsigned strand index.
 bool WritePointCloud(const std::string& path, const PointCloud& cloud,
-                     bool binary = true);
+                     bool binary = true, bool include_strand_labels = false);
 
 bool WriteMesh(const std::string& path, const std::vector<float>& vertices,
                const std::vector<float>& normals, const std::vector<int>& faces,

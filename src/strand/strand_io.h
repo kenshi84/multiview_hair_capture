@@ -48,8 +48,8 @@ bool WriteBinary(const std::string& path, const std::vector<Strand>& strands);
 // Read strands from binary format.
 bool ReadBinary(const std::string& path, std::vector<Strand>& strands);
 
-// Write strands as a PLY point cloud (binary_little_endian)
-// with x,y,z,nx,ny,nz,label(uint) properties.
+// Write a binary little-endian point cloud with strand directions, zero-based
+// strand indices (uint label), and Boys2RGB colors (uchar red, green, blue).
 bool WritePly(const std::string& path, const std::vector<Strand>& strands);
 
 // Convert strands to a merged PointCloud (label = strand index).

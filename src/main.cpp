@@ -85,10 +85,9 @@ static int RunTrace(const Config& cfg) {
 
   std::string out_ply = cfg.output_dir + "/strands_raw.ply";
   std::string out_bin = cfg.output_dir + "/strands_raw.bin";
-  strand_io::WritePly(out_ply, strands);
-  strand_io::WriteBinary(out_bin, strands);
-
-  return 0;
+  const bool wrote_ply = strand_io::WritePly(out_ply, strands);
+  const bool wrote_bin = strand_io::WriteBinary(out_bin, strands);
+  return wrote_ply && wrote_bin ? 0 : 1;
 }
 
 static int RunClean(const Config& cfg) {
@@ -103,10 +102,9 @@ static int RunClean(const Config& cfg) {
 
   std::string out_ply = cfg.output_dir + "/strands_clean.ply";
   std::string out_bin = cfg.output_dir + "/strands_clean.bin";
-  strand_io::WritePly(out_ply, cleaned);
-  strand_io::WriteBinary(out_bin, cleaned);
-
-  return 0;
+  const bool wrote_ply = strand_io::WritePly(out_ply, cleaned);
+  const bool wrote_bin = strand_io::WriteBinary(out_bin, cleaned);
+  return wrote_ply && wrote_bin ? 0 : 1;
 }
 
 static int RunMesh(const Config& cfg) {
