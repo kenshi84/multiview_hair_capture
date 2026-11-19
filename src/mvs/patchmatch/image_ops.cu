@@ -22,6 +22,14 @@ __constant__ unsigned char g_gauss5x5[5][5] = {{1, 4, 6, 4, 1},
                                                {4, 16, 24, 16, 4},
                                                {1, 4, 6, 4, 1}};
 
+// Invert the pixel-center transform used for the pyramid camera intrinsics.
+static __device__ float SourcePixelCoordinate(int dst_index, unsigned int src_size,
+                                              unsigned int dst_size) {
+  const float scale = static_cast<float>(src_size) / dst_size;
+  const float src_coord = (dst_index + 0.5f) * scale - 0.5f;
+  return clamp(src_coord, 0.0f, static_cast<float>(src_size - 1));
+}
+
 // ============================================================================
 // ResampleImage: bilinear interpolation for downsampling float maps
 // ============================================================================
@@ -33,11 +41,8 @@ __global__ void ResampleImageKernel(float* dst, unsigned int dst_w, unsigned int
   if (x >= dst_w || y >= dst_h)
     return;
 
-  // Coordinate mapping: edge-to-edge (N-1)/(M-1)
-  const float scaleW = (float) (src_w - 1) / (float) (dst_w - 1);
-  const float scaleH = (float) (src_h - 1) / (float) (dst_h - 1);
-  float fx = x * scaleW;
-  float fy = y * scaleH;
+  const float fx = SourcePixelCoordinate(x, src_w, dst_w);
+  const float fy = SourcePixelCoordinate(y, src_h, dst_h);
 
   int x0 = (int) fx;
   int y0 = (int) fy;
@@ -90,16 +95,10 @@ __global__ void ResampleImageTextureKernel(float* dst, unsigned int dst_w,
   if (x >= dst_w || y >= dst_h)
     return;
 
-  // Coordinate mapping: edge-to-edge, then use texture bilinear
-  const float scaleW = (float) (src_w - 1) / (float) (dst_w - 1);
-  const float scaleH = (float) (src_h - 1) / (float) (dst_h - 1);
-  float fx = x * scaleW;
-  float fy = y * scaleH;
-
-  if ((unsigned int) fx < src_w && (unsigned int) fy < src_h) {
-    // tex2D with +0.5 for half-pixel offset (texture coords are center-based)
-    dst[y * pitch + x] = tex2D<float>(src, fx + 0.5f, fy + 0.5f);
-  }
+  const float fx = SourcePixelCoordinate(x, src_w, dst_w);
+  const float fy = SourcePixelCoordinate(y, src_h, dst_h);
+  // Unnormalized CUDA texture coordinates place texel centers at i + 0.5.
+  dst[y * pitch + x] = tex2D<float>(src, fx + 0.5f, fy + 0.5f);
 }
 
 void ResampleImageTexture(float* dst, unsigned int dst_w, unsigned int dst_h,
@@ -113,7 +112,7 @@ void ResampleImageTexture(float* dst, unsigned int dst_w, unsigned int dst_h,
 }
 
 // ============================================================================
-// ResampleLine3DMap: bilinear for Line3D (interpolate p and v, renormalize v)
+// ResampleLine3DMap: copy the nearest source line hypothesis
 // ============================================================================
 __global__ void ResampleLine3DMapKernel(Line3D* dst, unsigned int dst_w,
                                         unsigned int dst_h, Line3D* src,
@@ -123,15 +122,11 @@ __global__ void ResampleLine3DMapKernel(Line3D* dst, unsigned int dst_w,
   if (x >= dst_w || y >= dst_h)
     return;
 
-  // Nearest neighbor interpolation for Line3D (not bilinear)
-  const float scaleW = (float) (src_w - 1) / (float) (dst_w - 1);
-  const float scaleH = (float) (src_h - 1) / (float) (dst_h - 1);
-  unsigned int xInput = (unsigned int) (x * scaleW + 0.5f);
-  unsigned int yInput = (unsigned int) (y * scaleH + 0.5f);
-
-  if (xInput < src_w && yInput < src_h) {
-    dst[y * dst_w + x] = src[yInput * src_w + xInput];
-  }
+  // Rounding the source pixel coordinate gives floor((i + 0.5) * src_size / dst_size).
+  // Use double so centers just below an integer boundary select the correct line.
+  const int src_x = static_cast<int>((x + 0.5) * src_w / dst_w);
+  const int src_y = static_cast<int>((y + 0.5) * src_h / dst_h);
+  dst[y * dst_w + x] = src[src_y * src_w + src_x];
 }
 
 void ResampleLine3DMap(Line3D* dst, unsigned int dst_w, unsigned int dst_h, Line3D* src,
