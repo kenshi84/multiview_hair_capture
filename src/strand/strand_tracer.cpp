@@ -35,6 +35,7 @@ bool ForwardEulerStep(const float pos[3], const float dir[3], const PointCloud& 
                       const std::vector<bool>& is_removed, float out_pos[3],
                       float out_dir[3]) {
   std::vector<nanoflann::ResultItem<KdTreeIndex, float>> neighbors;
+  const float min_advance = step_size * 1e-4f;
 
   int num_lookahead_steps = std::max(
       1, static_cast<int>(std::floor(max_lookahead / step_size + 1e-5f)));
@@ -116,7 +117,7 @@ bool ForwardEulerStep(const float pos[3], const float dir[3], const PointCloud& 
         float re_dz = avg_pz - pos[2];
         float re_len = std::sqrt(re_dx * re_dx + re_dy * re_dy + re_dz * re_dz);
         if (re_len < 1e-10f)
-          return false;
+          continue;
         out_dir[0] = re_dx / re_len;
         out_dir[1] = re_dy / re_len;
         out_dir[2] = re_dz / re_len;
@@ -131,7 +132,12 @@ bool ForwardEulerStep(const float pos[3], const float dir[3], const PointCloud& 
         out_dir[1] = sum_dy / avg_len;
         out_dir[2] = sum_dz / avg_len;
       }
-      return true;
+      // Try a farther probe if the averaged or reprojected position fails to advance.
+      const float advance = (out_pos[0] - pos[0]) * dir[0] +
+                            (out_pos[1] - pos[1]) * dir[1] +
+                            (out_pos[2] - pos[2]) * dir[2];
+      if (advance > min_advance)
+        return true;
     }
   }
 
