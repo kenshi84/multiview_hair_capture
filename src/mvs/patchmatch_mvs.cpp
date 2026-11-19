@@ -447,11 +447,10 @@ void PatchMatchMvs::ProcessReferenceView(int ref_index, int gpu_id) {
     if (config_.save_intermediates && !config_.output_dir.empty()) {
       std::string view_dir = config_.output_dir + "/view_" + std::to_string(ref_cam_id);
       PointCloud pc;
-      for (unsigned int i = 0; i < npix; i++) {
-        if (h_lines[i].p.z <= 0)
+      for (const Line3D& line : h_lines) {
+        if (dot(line.p, line.p) == 0.0f && dot(line.v, line.v) == 0.0f)
           continue;
-        pc.AddPoint(h_lines[i].p.x, h_lines[i].p.y, h_lines[i].p.z, h_lines[i].v.x,
-                    h_lines[i].v.y, h_lines[i].v.z, 0);
+        pc.AddPoint(line.p.x, line.p.y, line.p.z, line.v.x, line.v.y, line.v.z, 0);
       }
       ply_io::WritePointCloud(view_dir + "/ptcloud.ply", pc);
     }
