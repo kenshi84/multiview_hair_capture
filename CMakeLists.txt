@@ -59,6 +59,10 @@ set(COMMON_SOURCES
   src/common/profiler.cpp
 )
 
+set(COMMON_CUDA_SOURCES
+  src/common/boys2rgb.cu
+)
+
 set(MVS_SOURCES
   src/mvs/image_loader.cpp
   src/mvs/patchmatch_mvs.cpp
@@ -89,6 +93,7 @@ set(STRAND_CUDA_SOURCES
 add_executable(hair_recon
   src/main.cpp
   ${COMMON_SOURCES}
+  ${COMMON_CUDA_SOURCES}
   ${MVS_SOURCES}
   ${MVS_CUDA_SOURCES}
   ${STRAND_SOURCES}
@@ -132,3 +137,4 @@ else()
 endif()
 
 install(TARGETS hair_recon DESTINATION bin)
+install(FILES third_party/FURY-LICENSE DESTINATION share/licenses/hair_recon)
