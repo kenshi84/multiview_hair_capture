@@ -18,6 +18,7 @@ The `--recursive` is required because `tinyexr` itself has a nested submodule
 
 | Submodule path | Upstream repo | Tag / version | Pinned commit |
 |---|---|---|---|
+| `third_party/happly` | https://github.com/nmwsharp/happly | `v1.1.0` | `ed5480454d15e5287370eadc3682e9d40ba395e1` |
 | `third_party/json` | https://github.com/nlohmann/json | `v3.12.0` | `55f93686c01528224f448c19128836e7df245f72` |
 | `third_party/nanoflann` | https://github.com/jlblancoc/nanoflann | `v1.9.0` | `92911c0bc382e4b287330219bc720ca2b30b2857` |
 | `third_party/stb` | https://github.com/nothings/stb | (no tag — pins `stb_image` v2.30, `stb_image_write` v1.16, `stb_image_resize2` v2.18) | `904aa67e1e2d1dec92959df63e700b166d5c1022` |

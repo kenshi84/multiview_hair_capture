@@ -61,6 +61,7 @@ Set `num_gpus` in the config to distribute MVS and mean-shift across multiple GP
 ## Dependencies
 
 All bundled as git submodules (except Eigen3 and OpenMP):
+[hapPLY](https://github.com/nmwsharp/happly) (PLY I/O),
 [nanoflann](https://github.com/jlblancoc/nanoflann) (KD-tree),
 [toml++](https://github.com/marzer/tomlplusplus) (config),
 [stb](https://github.com/nothings/stb) (image I/O),

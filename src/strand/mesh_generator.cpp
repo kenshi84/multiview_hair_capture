@@ -115,7 +115,7 @@ void GenerateCylinderMesh(const std::vector<Strand>& strands, float radius,
   }
 }
 
-void WriteCylinderMesh(const std::string& path, const std::vector<Strand>& strands,
+bool WriteCylinderMesh(const std::string& path, const std::vector<Strand>& strands,
                        float radius, int radial_segments) {
   ScopedTimer timer("Mesh Generation");
 
@@ -126,7 +126,7 @@ void WriteCylinderMesh(const std::string& path, const std::vector<Strand>& stran
   LOG_INFO("Cylinder mesh: %zu vertices, %zu faces", vertices.size() / 3,
            faces.size() / 3);
 
-  ply_io::WriteMesh(path, vertices, normals_vec, faces);
+  return ply_io::WriteMesh(path, vertices, normals_vec, faces);
 }
 
 }  // namespace mesh_generator

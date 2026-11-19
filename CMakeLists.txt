@@ -40,7 +40,8 @@ find_package(OpenMP REQUIRED)
 set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 
 # Check submodules are initialized
-if(NOT EXISTS "${THIRD_PARTY_DIR}/nanoflann/include/nanoflann.hpp")
+if(NOT EXISTS "${THIRD_PARTY_DIR}/nanoflann/include/nanoflann.hpp" OR
+   NOT EXISTS "${THIRD_PARTY_DIR}/happly/happly.h")
   message(FATAL_ERROR
     "Git submodules not initialized. Run:\n"
     "  git submodule update --init --recursive")
@@ -102,6 +103,7 @@ add_executable(hair_recon
 
 target_include_directories(hair_recon PRIVATE
   ${SRC_DIR}
+  ${THIRD_PARTY_DIR}/happly              # happly.h
   ${THIRD_PARTY_DIR}/nanoflann/include   # nanoflann.hpp
   ${THIRD_PARTY_DIR}/tomlplusplus        # toml.hpp (single-header at repo root)
   ${THIRD_PARTY_DIR}/stb                 # stb_image.h etc.
@@ -138,3 +140,5 @@ endif()
 
 install(TARGETS hair_recon DESTINATION bin)
 install(FILES third_party/FURY-LICENSE DESTINATION share/licenses/hair_recon)
+install(FILES "${THIRD_PARTY_DIR}/happly/LICENSE"
+        DESTINATION share/licenses/hair_recon RENAME hapPLY-LICENSE)

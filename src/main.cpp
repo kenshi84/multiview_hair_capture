@@ -56,9 +56,7 @@ static int RunMvs(const Config& cfg) {
   PointCloud fused = depth_fusion::FusePointClouds(mvs.view_results(), cameras, cfg);
 
   std::string out_path = cfg.output_dir + "/fused.ply";
-  ply_io::WritePointCloud(out_path, fused);
-
-  return 0;
+  return ply_io::WritePointCloud(out_path, fused) ? 0 : 1;
 }
 
 static int RunMeanshift(const Config& cfg) {
@@ -72,9 +70,7 @@ static int RunMeanshift(const Config& cfg) {
   PointCloud filtered = meanshift::RunCuda(cloud, cfg, cfg.gpu_id, cfg.num_gpus);
 
   std::string out_path = cfg.output_dir + "/meanshift.ply";
-  ply_io::WritePointCloud(out_path, filtered);
-
-  return 0;
+  return ply_io::WritePointCloud(out_path, filtered) ? 0 : 1;
 }
 
 static int RunTrace(const Config& cfg) {
@@ -122,9 +118,7 @@ static int RunMesh(const Config& cfg) {
     return 1;
 
   std::string out_path = cfg.output_dir + "/hair_mesh.ply";
-  mesh_generator::WriteCylinderMesh(out_path, strands, 0.2f, 6);
-
-  return 0;
+  return mesh_generator::WriteCylinderMesh(out_path, strands, 0.2f, 6) ? 0 : 1;
 }
 
 static int RunPipeline(const Config& cfg) {

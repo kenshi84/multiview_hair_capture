@@ -9,242 +9,152 @@
 
 #include "common/ply_io.h"
 
-#include <cstdio>
-#include <cstring>
+#include <array>
+#include <cstdint>
+#include <fstream>
+#include <memory>
+#include <stdexcept>
+#include <utility>
 
+#include "common/boys2rgb.h"
 #include "common/logger.h"
+#include "happly.h"
 
 namespace ply_io {
+namespace {
 
-static bool IsLittleEndian() {
-  int x = 1;
-  return *reinterpret_cast<char*>(&x) == 1;
+using PropertyNames = std::array<const char*, 3>;
+constexpr PropertyNames kPositions{"x", "y", "z"};
+constexpr PropertyNames kNormals{"nx", "ny", "nz"};
+
+std::vector<float> ReadTriples(happly::Element& vertices, const PropertyNames& names) {
+  std::vector<float> values(3 * vertices.count);
+  for (size_t axis = 0; axis < names.size(); ++axis) {
+    const char* name = names[axis];
+    auto copy_component = [&](const auto& component) {
+      for (size_t i = 0; i < vertices.count; ++i)
+        values[3 * i + axis] = static_cast<float>(component[i]);
+    };
+    // hapPLY promotes within each of the floating-point and integer type families.
+    const std::string type = vertices.getPropertyPtr(name)->propertyTypeName();
+    if (type == "float" || type == "double")
+      copy_component(vertices.getProperty<double>(name));
+    else if (type == "char" || type == "short" || type == "int")
+      copy_component(vertices.getProperty<std::int32_t>(name));
+    else
+      copy_component(vertices.getProperty<std::uint32_t>(name));
+  }
+  return values;
 }
 
-static void SwapBytes4(void* p) {
-  unsigned char* b = static_cast<unsigned char*>(p);
-  unsigned char t;
-  t = b[0];
-  b[0] = b[3];
-  b[3] = t;
-  t = b[1];
-  b[1] = b[2];
-  b[2] = t;
+template <typename T>
+void AddTriples(happly::Element& vertices, const PropertyNames& names,
+                const std::vector<T>& values) {
+  if (values.size() != 3 * vertices.count)
+    throw std::invalid_argument(std::string("Expected one triple per vertex for ") +
+                                names[0]);
+
+  std::vector<T> component(vertices.count);
+  for (size_t axis = 0; axis < names.size(); ++axis) {
+    for (size_t i = 0; i < vertices.count; ++i)
+      component[i] = values[3 * i + axis];
+    vertices.addProperty(names[axis], component);
+  }
 }
+
+happly::Element& AddVertices(happly::PLYData& ply, const std::vector<float>& positions,
+                             const std::vector<float>& normals) {
+  ply.addElement("vertex", positions.size() / 3);
+  auto& vertices = ply.getElement("vertex");
+  AddTriples(vertices, kPositions, positions);
+  if (!normals.empty())
+    AddTriples(vertices, kNormals, normals);
+  return vertices;
+}
+
+void WriteFile(const std::string& path, happly::PLYData& ply, bool binary) {
+  std::ofstream output(path, std::ios::binary);
+  output.exceptions(std::ios::failbit | std::ios::badbit);
+  ply.write(output, binary ? happly::DataFormat::Binary : happly::DataFormat::ASCII);
+  output.close();
+}
+
+}  // namespace
 
 bool ReadPointCloud(const std::string& path, PointCloud& cloud) {
-  FILE* f = fopen(path.c_str(), "rb");
-  if (!f) {
-    LOG_ERROR("Cannot open PLY: %s", path.c_str());
+  try {
+    std::ifstream input(path, std::ios::binary);
+    input.exceptions(std::ios::failbit | std::ios::badbit);
+    happly::PLYData ply(input);
+    ply.validate();
+    auto& vertices = ply.getElement("vertex");
+
+    PointCloud result;
+    result.positions = ReadTriples(vertices, kPositions);
+    if (vertices.hasProperty("nx")) {
+      result.directions = ReadTriples(vertices, kNormals);
+    } else if (vertices.hasProperty("normal_x")) {
+      result.directions = ReadTriples(vertices, {"normal_x", "normal_y", "normal_z"});
+    } else {
+      result.directions.resize(result.positions.size(), 0.0f);
+    }
+    result.labels.resize(vertices.count, 0);
+    cloud = std::move(result);
+    LOG_INFO("Read %zu points from %s", cloud.NumPoints(), path.c_str());
+    return true;
+  } catch (const std::exception& e) {
+    LOG_ERROR("Cannot read PLY %s: %s", path.c_str(), e.what());
     return false;
   }
-
-  char buf[1024];
-  int nverts = 0;
-  bool binary = false;
-  bool big_endian = false;
-  bool has_normals = false;
-  int vert_len = 0;
-  bool in_vertex_section = false;
-
-  while (fgets(buf, sizeof(buf), f)) {
-    if (strncmp(buf, "end_header", 10) == 0)
-      break;
-    if (strncmp(buf, "format binary_big_endian", 24) == 0) {
-      binary = true;
-      big_endian = true;
-    } else if (strncmp(buf, "format binary_little_endian", 27) == 0) {
-      binary = true;
-      big_endian = false;
-    }
-    if (sscanf(buf, "element vertex %d", &nverts) == 1) {
-      in_vertex_section = true;
-      continue;
-    }
-    if (strncmp(buf, "element ", 8) == 0 &&
-        sscanf(buf, "element vertex %d", &nverts) != 1) {
-      in_vertex_section = false;
-    }
-    if (in_vertex_section) {
-      if (strncmp(buf, "property float nx", 17) == 0 ||
-          strncmp(buf, "property float normal_x", 23) == 0) {
-        has_normals = true;
-      }
-      if (strncmp(buf, "property float", 14) == 0)
-        vert_len++;
-      if (strncmp(buf, "property uint", 13) == 0 ||
-          strncmp(buf, "property int", 12) == 0)
-        vert_len++;
-    }
-  }
-
-  bool need_swap = binary && big_endian && IsLittleEndian();
-
-  cloud.Clear();
-  cloud.Reserve(nverts);
-
-  for (int i = 0; i < nverts; ++i) {
-    float x, y, z, nx = 0, ny = 0, nz = 0;
-    if (binary) {
-      float vals[16];
-      if (fread(vals, sizeof(float), vert_len, f) != static_cast<size_t>(vert_len)) {
-        fclose(f);
-        return false;
-      }
-      if (need_swap) {
-        for (int j = 0; j < vert_len; ++j)
-          SwapBytes4(&vals[j]);
-      }
-      x = vals[0];
-      y = vals[1];
-      z = vals[2];
-      if (has_normals && vert_len >= 6) {
-        nx = vals[3];
-        ny = vals[4];
-        nz = vals[5];
-      }
-    } else {
-      if (has_normals) {
-        if (fscanf(f, "%f %f %f %f %f %f", &x, &y, &z, &nx, &ny, &nz) < 6) {
-          char rest[1024];
-          if (fgets(rest, sizeof(rest), f)) {
-          }
-        }
-      } else {
-        if (fscanf(f, "%f %f %f", &x, &y, &z) < 3) {
-        }
-        char rest[1024];
-        if (fgets(rest, sizeof(rest), f)) {
-        }
-      }
-    }
-    cloud.AddPoint(x, y, z, nx, ny, nz);
-  }
-
-  fclose(f);
-  LOG_INFO("Read %zu points from %s (binary=%d, big_endian=%d, %d props/vert)",
-           cloud.NumPoints(), path.c_str(), binary, big_endian, vert_len);
-  return true;
 }
 
 bool WritePointCloud(const std::string& path, const PointCloud& cloud, bool binary) {
-  FILE* f = fopen(path.c_str(), "wb");
-  if (!f) {
-    LOG_ERROR("Cannot create PLY: %s", path.c_str());
+  try {
+    happly::PLYData ply;
+    auto& vertices = AddVertices(ply, cloud.positions, cloud.directions);
+    if (!cloud.directions.empty()) {
+      std::vector<unsigned char> colors(cloud.directions.size());
+      Boys2RGB(colors.data(), cloud.directions.data(), vertices.count);
+      AddTriples(vertices, {"red", "green", "blue"}, colors);
+    }
+
+    WriteFile(path, ply, binary);
+    LOG_INFO("Wrote %zu points to %s", vertices.count, path.c_str());
+    return true;
+  } catch (const std::exception& e) {
+    LOG_ERROR("Cannot write point cloud %s: %s", path.c_str(), e.what());
     return false;
   }
-
-  size_t n = cloud.NumPoints();
-  bool has_dirs = !cloud.directions.empty();
-
-  fprintf(f, "ply\n");
-  if (binary) {
-    fprintf(f, "format binary_little_endian 1.0\n");
-  } else {
-    fprintf(f, "format ascii 1.0\n");
-  }
-  fprintf(f, "element vertex %zu\n", n);
-  fprintf(f, "property float x\n");
-  fprintf(f, "property float y\n");
-  fprintf(f, "property float z\n");
-  if (has_dirs) {
-    fprintf(f, "property float nx\n");
-    fprintf(f, "property float ny\n");
-    fprintf(f, "property float nz\n");
-  }
-  fprintf(f, "end_header\n");
-
-  for (size_t i = 0; i < n; ++i) {
-    float x = cloud.positions[i * 3];
-    float y = cloud.positions[i * 3 + 1];
-    float z = cloud.positions[i * 3 + 2];
-    if (binary) {
-      fwrite(&x, sizeof(float), 1, f);
-      fwrite(&y, sizeof(float), 1, f);
-      fwrite(&z, sizeof(float), 1, f);
-      if (has_dirs) {
-        float dx = cloud.directions[i * 3];
-        float dy = cloud.directions[i * 3 + 1];
-        float dz = cloud.directions[i * 3 + 2];
-        fwrite(&dx, sizeof(float), 1, f);
-        fwrite(&dy, sizeof(float), 1, f);
-        fwrite(&dz, sizeof(float), 1, f);
-      }
-    } else {
-      if (has_dirs) {
-        fprintf(f, "%f %f %f %f %f %f\n", x, y, z, cloud.directions[i * 3],
-                cloud.directions[i * 3 + 1], cloud.directions[i * 3 + 2]);
-      } else {
-        fprintf(f, "%f %f %f\n", x, y, z);
-      }
-    }
-  }
-
-  fclose(f);
-  LOG_INFO("Wrote %zu points to %s", n, path.c_str());
-  return true;
 }
 
 bool WriteMesh(const std::string& path, const std::vector<float>& vertices,
                const std::vector<float>& normals, const std::vector<int>& faces,
                bool binary) {
-  FILE* f = fopen(path.c_str(), "wb");
-  if (!f)
+  try {
+    if (faces.size() % 3 != 0)
+      throw std::invalid_argument("Expected three vertex indices per triangle");
+
+    happly::PLYData ply;
+    AddVertices(ply, vertices, normals);
+    const size_t num_faces = faces.size() / 3;
+    ply.addElement("face", num_faces);
+
+    // Use flat list storage to avoid a heap allocation per triangle.
+    auto indices = std::make_unique<happly::TypedListProperty<int>>("vertex_indices", 1);
+    indices->flattenedData = faces;
+    indices->flattenedIndexStart.reserve(num_faces + 1);
+    for (size_t i = 1; i <= num_faces; ++i)
+      indices->flattenedIndexStart.push_back(3 * i);
+    ply.getElement("face").properties.push_back(std::move(indices));
+
+    WriteFile(path, ply, binary);
+    LOG_INFO("Wrote mesh (%zu verts, %zu faces) to %s", vertices.size() / 3, num_faces,
+             path.c_str());
+    return true;
+  } catch (const std::exception& e) {
+    LOG_ERROR("Cannot write mesh %s: %s", path.c_str(), e.what());
     return false;
-
-  size_t nv = vertices.size() / 3;
-  size_t nf = faces.size() / 3;
-  bool has_normals = !normals.empty();
-
-  fprintf(f, "ply\n");
-  if (binary) {
-    fprintf(f, "format binary_little_endian 1.0\n");
-  } else {
-    fprintf(f, "format ascii 1.0\n");
   }
-  fprintf(f, "element vertex %zu\n", nv);
-  fprintf(f, "property float x\n");
-  fprintf(f, "property float y\n");
-  fprintf(f, "property float z\n");
-  if (has_normals) {
-    fprintf(f, "property float nx\n");
-    fprintf(f, "property float ny\n");
-    fprintf(f, "property float nz\n");
-  }
-  fprintf(f, "element face %zu\n", nf);
-  fprintf(f, "property list uchar int vertex_indices\n");
-  fprintf(f, "end_header\n");
-
-  if (binary) {
-    for (size_t i = 0; i < nv; ++i) {
-      fwrite(&vertices[i * 3], sizeof(float), 3, f);
-      if (has_normals)
-        fwrite(&normals[i * 3], sizeof(float), 3, f);
-    }
-    for (size_t i = 0; i < nf; ++i) {
-      unsigned char three = 3;
-      fwrite(&three, 1, 1, f);
-      fwrite(&faces[i * 3], sizeof(int), 3, f);
-    }
-  } else {
-    for (size_t i = 0; i < nv; ++i) {
-      if (has_normals) {
-        fprintf(f, "%f %f %f %f %f %f\n", vertices[i * 3], vertices[i * 3 + 1],
-                vertices[i * 3 + 2], normals[i * 3], normals[i * 3 + 1],
-                normals[i * 3 + 2]);
-      } else {
-        fprintf(f, "%f %f %f\n", vertices[i * 3], vertices[i * 3 + 1],
-                vertices[i * 3 + 2]);
-      }
-    }
-    for (size_t i = 0; i < nf; ++i) {
-      fprintf(f, "3 %d %d %d\n", faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
-    }
-  }
-
-  fclose(f);
-  LOG_INFO("Wrote mesh (%zu verts, %zu faces) to %s", nv, nf, path.c_str());
-  return true;
 }
 
 }  // namespace ply_io

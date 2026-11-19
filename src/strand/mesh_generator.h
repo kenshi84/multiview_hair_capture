@@ -23,7 +23,7 @@ void GenerateCylinderMesh(const std::vector<Strand>& strands, float radius,
                           std::vector<float>& normals, std::vector<int>& faces);
 
 // Write cylinder mesh directly to PLY.
-void WriteCylinderMesh(const std::string& path, const std::vector<Strand>& strands,
+bool WriteCylinderMesh(const std::string& path, const std::vector<Strand>& strands,
                        float radius = 0.1f, int radial_segments = 3);
 
 }  // namespace mesh_generator
